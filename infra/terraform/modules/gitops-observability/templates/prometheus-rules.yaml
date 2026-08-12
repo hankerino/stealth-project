@@ -1,0 +1,37 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: exchange-baseline-alerts
+  namespace: observability
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: node
+      rules:
+        - alert: HighNodeCPU
+          expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Node {{ $labels.instance }} CPU above 80% for 10m"
+    - name: pods
+      rules:
+        - alert: PodCrashLooping
+          expr: increase(kube_pod_container_status_restarts_total[10m]) > 5
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Pod {{ $labels.namespace }}/{{ $labels.pod }} restarted >5 times in 10m"
+    - name: api-sli
+      rules:
+        - alert: ApiP99LatencyHigh
+          # p99 of the trading-engine API over 10m above 1s.
+          expr: histogram_quantile(0.99, sum by (le) (rate(http_server_request_duration_seconds_bucket{namespace="exchange", app="trading-engine"}[10m]))) > 1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "trading-engine API p99 latency above 1s for 10m"

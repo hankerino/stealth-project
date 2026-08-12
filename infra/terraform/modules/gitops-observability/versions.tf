@@ -18,13 +18,5 @@ terraform {
       source  = "alekc/kubectl"
       version = "~> 2.0"
     }
-    tls = {
-      source  = "hashicorp/tls"
-      version = "~> 4.0"
-    }
-    http = {
-      source  = "hashicorp/http"
-      version = "~> 3.4"
-    }
   }
 }

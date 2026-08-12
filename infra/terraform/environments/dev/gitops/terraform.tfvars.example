@@ -1,0 +1,5 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+
+dev_account_id = "012345678901"
+state_bucket   = "cte-terraform-state-012345678901"
+# gitops_repo_token = "<read-only PAT or deploy token for the private repo>"

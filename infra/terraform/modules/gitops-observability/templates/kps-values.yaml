@@ -1,0 +1,15 @@
+grafana:
+  additionalDataSources:
+    - name: Loki
+      type: loki
+      url: ${loki_url}
+      access: proxy
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+
+prometheus:
+  prometheusSpec:
+    ruleSelectorNilUsesHelmValues: false
+    serviceMonitorSelectorNilUsesHelmValues: false

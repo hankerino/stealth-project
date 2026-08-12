@@ -1,0 +1,14 @@
+server:
+  serviceAccount:
+    annotations:
+      eks.amazonaws.com/role-arn: ${role_arn}
+
+# Dev posture: single replica, no HA.
+controller:
+  replicas: 1
+server:
+  replicas: 1
+repoServer:
+  replicas: 1
+applicationSet:
+  replicas: 1

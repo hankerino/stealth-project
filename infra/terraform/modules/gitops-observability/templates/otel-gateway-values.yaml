@@ -1,0 +1,21 @@
+mode: deployment
+replicaCount: 1
+
+image:
+  repository: otel/opentelemetry-collector-contrib
+
+config:
+  exporters:
+    prometheus:
+      endpoint: "0.0.0.0:8889"
+    loki:
+      endpoint: ${loki_push_url}
+
+  service:
+    pipelines:
+      traces:
+        exporters: [] # dev: drop traces (no tracing backend yet)
+      metrics:
+        exporters: [prometheus]
+      logs:
+        exporters: [loki]

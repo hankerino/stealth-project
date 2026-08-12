@@ -14,10 +14,10 @@ provider "aws" {
   }
 }
 
-# The eks module installs Helm charts + kubectl manifests against the
-# cluster's PRIVATE endpoint — apply from a TGW-connected host (CI runner).
+# Cluster API is private (vpc-core) — apply from a TGW-connected host
+# (CI runner in vpc-mgmt).
 data "aws_eks_cluster" "this" {
-  name = var.cluster_name
+  name = data.terraform_remote_state.eks.outputs.cluster_name
 }
 
 data "aws_eks_cluster_auth" "this" {
