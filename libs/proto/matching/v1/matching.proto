@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package cte.matching.v1;
+
+option go_package = "github.com/hankerino/stealth-project/libs/proto/gen/matching/v1;matchingv1";
+
+// Internal control-plane contract for the matching engine (ops/admin tooling,
+// not clients). The hot path is Kafka, not gRPC.
+service MatchingEngine {
+  rpc GetBookSnapshot(GetBookSnapshotRequest) returns (GetBookSnapshotResponse);
+  rpc HaltSymbol(HaltSymbolRequest) returns (HaltSymbolResponse);
+  rpc ResumeSymbol(ResumeSymbolRequest) returns (ResumeSymbolResponse);
+}
+
+message GetBookSnapshotRequest {
+  string symbol = 1; // "<GPU_TYPE>:<REGION>", e.g. "H100:us-east-1"
+}
+
+message PriceLevel {
+  int64 price_cents = 1;
+  int64 total_quantity = 2;
+  int32 order_count = 3;
+}
+
+message GetBookSnapshotResponse {
+  string symbol = 1;
+  repeated PriceLevel bids = 2; // best (highest) first
+  repeated PriceLevel asks = 3; // best (lowest) first
+  int64 sequence = 4;           // engine event sequence at snapshot time
+}
+
+message HaltSymbolRequest {
+  string symbol = 1;
+  string reason = 2;
+}
+
+message HaltSymbolResponse {
+  bool halted = 1;
+}
+
+message ResumeSymbolRequest {
+  string symbol = 1;
+}
+
+message ResumeSymbolResponse {
+  bool resumed = 1;
+}

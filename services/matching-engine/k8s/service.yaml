@@ -1,0 +1,18 @@
+# The engine is a Kafka consumer/producer, not a request-serving API — this
+# ClusterIP Service exists only to expose the health endpoint (and future
+# metrics) inside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: matching-engine
+  namespace: exchange
+  labels:
+    app: matching-engine
+spec:
+  type: ClusterIP
+  selector:
+    app: matching-engine
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

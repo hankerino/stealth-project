@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "OrderUpdated",
+  "namespace": "cte.events",
+  "doc": "Order lifecycle updates from the matching engine to the `order-updates` topic (fills, partial fills, engine-side cancels/expiry). Kafka key: symbol.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "order_id", "type": "string" },
+    { "name": "user_id", "type": "string" },
+    { "name": "symbol", "type": "string" },
+    { "name": "new_status", "type": { "type": "enum", "name": "OrderStatus", "symbols": ["OPEN", "PARTIALLY_FILLED", "FILLED", "CANCELLED", "REJECTED", "EXPIRED"] } },
+    { "name": "filled_quantity", "type": "long", "doc": "cumulative filled quantity" },
+    { "name": "remaining_quantity", "type": "long" },
+    { "name": "reason", "type": ["null", "string"], "default": null, "doc": "e.g. IOC_REMAINDER, FOK_UNFILLABLE, USER_CANCEL" },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}

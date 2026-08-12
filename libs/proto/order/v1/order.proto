@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package cte.order.v1;
+
+option go_package = "github.com/hankerino/stealth-project/libs/proto/gen/order/v1;orderv1";
+
+// Client-facing order entry contract (Order Service).
+service OrderService {
+  rpc SubmitOrder(SubmitOrderRequest) returns (SubmitOrderResponse);
+  rpc CancelOrder(CancelOrderRequest) returns (CancelOrderResponse);
+  rpc GetOrder(GetOrderRequest) returns (GetOrderResponse);
+}
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  SIDE_BUY = 1;
+  SIDE_SELL = 2;
+}
+
+// Time-in-force maps to matching-engine behavior: GTC rests on the book,
+// IOC takes liquidity and cancels the remainder, FOK fills fully or not at all.
+enum TimeInForce {
+  TIME_IN_FORCE_UNSPECIFIED = 0;
+  TIME_IN_FORCE_GTC = 1;
+  TIME_IN_FORCE_IOC = 2;
+  TIME_IN_FORCE_FOK = 3;
+}
+
+enum OrderStatus {
+  ORDER_STATUS_UNSPECIFIED = 0;
+  ORDER_STATUS_OPEN = 1;
+  ORDER_STATUS_PARTIALLY_FILLED = 2;
+  ORDER_STATUS_FILLED = 3;
+  ORDER_STATUS_CANCELLED = 4;
+  ORDER_STATUS_REJECTED = 5;
+  ORDER_STATUS_EXPIRED = 6; // IOC/FOK remainder
+}
+
+message SubmitOrderRequest {
+  string user_id = 1;
+  string gpu_type = 2;          // e.g. "H100"
+  string region = 3;            // e.g. "us-east-1"
+  Side side = 4;
+  int64 price_cents = 5;        // limit price, cents per GPU-hour
+  int64 quantity = 6;           // GPU-hours
+  TimeInForce time_in_force = 7;
+}
+
+message SubmitOrderResponse {
+  string order_id = 1;
+  OrderStatus status = 2;
+}
+
+message CancelOrderRequest {
+  string user_id = 1;
+  string order_id = 2;
+}
+
+message CancelOrderResponse {
+  string order_id = 1;
+  OrderStatus status = 2;
+}
+
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+message GetOrderResponse {
+  string order_id = 1;
+  string user_id = 2;
+  string gpu_type = 3;
+  string region = 4;
+  Side side = 5;
+  int64 price_cents = 6;
+  int64 quantity = 7;
+  int64 filled_quantity = 8;
+  OrderStatus status = 9;
+  int64 created_at_unix_ms = 10;
+  int64 updated_at_unix_ms = 11;
+}

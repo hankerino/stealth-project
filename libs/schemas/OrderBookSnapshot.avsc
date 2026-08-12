@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "OrderBookSnapshot",
+  "namespace": "cte.events",
+  "doc": "Periodic order-book snapshot. Written to Redis by the matching engine (key `book:{symbol}`) and may be republished to the `book-snapshots` topic for consumers.",
+  "fields": [
+    { "name": "symbol", "type": "string" },
+    { "name": "sequence", "type": "long", "doc": "engine event sequence at snapshot time" },
+    { "name": "bids", "type": { "type": "array", "items": {
+      "type": "record", "name": "PriceLevel", "fields": [
+        { "name": "price_cents", "type": "long" },
+        { "name": "total_quantity", "type": "long" },
+        { "name": "order_count", "type": "int" }
+      ]
+    } } },
+    { "name": "asks", "type": { "type": "array", "items": "PriceLevel" } },
+    { "name": "taken_at_unix_ms", "type": "long" }
+  ]
+}

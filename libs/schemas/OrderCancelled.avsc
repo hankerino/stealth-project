@@ -1,0 +1,13 @@
+{
+  "type": "record",
+  "name": "OrderCancelled",
+  "namespace": "cte.events",
+  "doc": "Published to the `orders` topic when a user cancels a resting order. Kafka key: symbol.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "order_id", "type": "string" },
+    { "name": "user_id", "type": "string" },
+    { "name": "symbol", "type": "string" },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}

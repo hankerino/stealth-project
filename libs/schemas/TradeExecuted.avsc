@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "TradeExecuted",
+  "namespace": "cte.events",
+  "doc": "Published by the matching engine to the `trades` topic for each fill. Kafka key: symbol.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "trade_id", "type": "string" },
+    { "name": "symbol", "type": "string" },
+    { "name": "price_cents", "type": "long", "doc": "execution price (resting order's price — price-time priority)" },
+    { "name": "quantity", "type": "long" },
+    { "name": "aggressor_side", "type": { "type": "enum", "name": "AggressorSide", "symbols": ["BUY", "SELL"] } },
+    { "name": "maker_order_id", "type": "string" },
+    { "name": "taker_order_id", "type": "string" },
+    { "name": "maker_user_id", "type": "string" },
+    { "name": "taker_user_id", "type": "string" },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}

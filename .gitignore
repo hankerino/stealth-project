@@ -15,3 +15,6 @@ backend.hcl
 *.swp
 .idea/
 .vscode/
+
+# Rust
+target/

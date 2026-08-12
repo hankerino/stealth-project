@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: market-data
+  namespace: exchange
+  labels:
+    app: market-data
+spec:
+  # The PRD calls for type LoadBalancer. In this platform the service is in
+  # fact fronted by the edge ALB + TargetGroupBinding (see
+  # infra/terraform/environments/dev/edge and .../workloads) — the TGB
+  # registers pod IPs into the edge target group directly. Kept as
+  # LoadBalancer per the PRD; with the AWS LBC installed this would otherwise
+  # provision an extra NLB, so expect this to move to the TGB wiring used by
+  # the trading-engine service.
+  type: LoadBalancer
+  selector:
+    app: market-data
+  ports:
+    - name: ws
+      port: 80
+      targetPort: ws

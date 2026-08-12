@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: matching-engine
+  namespace: exchange
+  labels:
+    app: matching-engine
+spec:
+  # Single-writer by design: each order book lives in process memory and
+  # price-time priority requires strictly sequential processing per symbol,
+  # so exactly one pod may consume the `orders` topic in dev. There is
+  # deliberately NO HPA for this service: scaling replicas > 1 would create
+  # concurrent writers for the same books. Horizontal scale-out (sharding
+  # symbols across engine instances with a symbol-partitioned orders topic)
+  # is a Phase 1B+ concern; vertical scale covers dev load.
+  replicas: 1
+  # Recreate (not RollingUpdate) so an old and new pod never consume the
+  # same consumer group at the same time during rollouts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: matching-engine
+  template:
+    metadata:
+      labels:
+        app: matching-engine
+    spec:
+      containers:
+        - name: matching-engine
+          # Built by CI from services/matching-engine/Dockerfile.
+          image: ghcr.io/compute-trading-exchange/matching-engine:latest
+          env:
+            - name: KAFKA_BROKERS
+              value: "kafka.exchange.svc.cluster.local:9092"
+            - name: KAFKA_TLS_ENABLED
+              value: "true"
+            - name: REDIS_URL
+              value: "redis://redis.exchange.svc.cluster.local:6379"
+            - name: SNAPSHOT_INTERVAL_MS
+              value: "1000"
+            - name: SNAPSHOT_EVENT_THRESHOLD
+              value: "1000"
+            - name: RUST_LOG
+              value: "info"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi

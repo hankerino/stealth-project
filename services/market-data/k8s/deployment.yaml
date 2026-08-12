@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: market-data
+  namespace: exchange
+  labels:
+    app: market-data
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: market-data
+  template:
+    metadata:
+      labels:
+        app: market-data
+    spec:
+      containers:
+        - name: market-data
+          # Placeholder only. ECR tags are immutable (git-sha per build) and
+          # CI sets the real image on every deploy (kubectl set image).
+          image: REPLACE_WITH_ECR_REGISTRY/market-data:bootstrap
+          ports:
+            - name: ws
+              containerPort: 8081
+          env:
+            - name: LISTEN_ADDR
+              value: ":8081"
+            # MSK TLS bootstrap brokers (port 9094) from the dev/data layer.
+            - name: KAFKA_BROKERS
+              value: "REPLACE_WITH_MSK_BOOTSTRAP_BROKERS_TLS"
+            # MSK enforces client_broker=TLS. NOTE: MSK also requires TLS
+            # *client* authentication — cert wiring (External Secrets +
+            # ssl.keystore.* config) is a follow-up before this connects.
+            - name: KAFKA_TLS_ENABLED
+              value: "true"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            tcpSocket:
+              port: ws
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: ws
+            initialDelaySeconds: 10
+            periodSeconds: 20

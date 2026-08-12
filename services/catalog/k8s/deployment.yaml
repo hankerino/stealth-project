@@ -1,0 +1,66 @@
+# Catalog Service deployment.
+#
+# Config pattern: non-sensitive settings come from a ConfigMap named
+# `catalog-config`, secrets (DATABASE_URL) from a Secret named
+# `catalog-secrets`, e.g.:
+#
+#   kubectl -n exchange create configmap catalog-config \
+#     --from-literal=LISTEN_ADDR=:8080
+#   kubectl -n exchange create secret generic catalog-secrets \
+#     --from-literal=DATABASE_URL='postgres://user:pass@aurora-endpoint:5432/catalog'
+#
+# (In GitOps these would be rendered from Terraform/SOPS instead of kubectl.)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog
+  namespace: exchange
+  labels:
+    app: catalog
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: catalog
+  template:
+    metadata:
+      labels:
+        app: catalog
+    spec:
+      containers:
+        - name: catalog
+          image: exchange/catalog:dev
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: LISTEN_ADDR
+              valueFrom:
+                configMapKeyRef:
+                  name: catalog-config
+                  key: LISTEN_ADDR
+                  optional: true
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: catalog-secrets
+                  key: DATABASE_URL
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
