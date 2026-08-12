@@ -23,10 +23,7 @@ variable "dev_account_id" {
   }
 }
 
-variable "state_bucket" {
-  description = "S3 bucket holding all Terraform state."
-  type        = string
-}
+variable "state_bucket" { type = string }
 
 variable "state_region" {
   type    = string
@@ -38,54 +35,24 @@ variable "network_state_key" {
   default = "dev/network/terraform.tfstate"
 }
 
+variable "data_state_key" {
+  type    = string
+  default = "dev/data/terraform.tfstate"
+}
+
 variable "cluster_name" {
   type    = string
   default = "dev-exchange"
 }
 
-variable "kubernetes_version" {
-  type    = string
-  default = "1.31"
-}
-
 variable "admin_role_arn" {
-  description = "IAM role granted cluster-admin via an EKS access entry. Defaults to the dev account's OrganizationAccountAccessRole."
+  description = "Cluster-admin role. Empty = dev OrganizationAccountAccessRole is used by kubectl via kubeconfig anyway; set to grant explicitly."
   type        = string
   default     = ""
 }
 
 variable "ci_role_arn" {
-  description = "CI runner role ARN — gets a cluster-admin access entry so pipelines can kubectl (dev posture)."
+  description = "CI runner role ARN from dev/ci (ci_runner_role_arn output) — enables pipeline kubectl access."
   type        = string
   default     = ""
-}
-
-variable "system_node_instance_types" {
-  type    = list(string)
-  default = ["t3.large"]
-}
-
-variable "system_node_size" {
-  type = object({
-    min     = number
-    desired = number
-    max     = number
-  })
-  default = { min = 2, desired = 2, max = 4 }
-}
-
-variable "gpu_node_instance_types" {
-  description = "GPU node group instances. g4dn = cheapest NVIDIA T4 family."
-  type        = list(string)
-  default     = ["g4dn.xlarge"]
-}
-
-variable "gpu_node_size" {
-  description = "GPU group scales to zero in dev by default."
-  type = object({
-    min     = number
-    desired = number
-    max     = number
-  })
-  default = { min = 0, desired = 0, max = 2 }
 }

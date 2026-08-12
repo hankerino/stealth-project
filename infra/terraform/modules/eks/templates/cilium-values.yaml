@@ -1,0 +1,20 @@
+# Cilium on EKS: eBPF dataplane + kube-proxy replacement, ENI IPAM.
+kubeProxyReplacement: "true"
+
+k8sServiceHost: ${cluster_endpoint}
+k8sServicePort: 443
+
+ipam:
+  mode: eni
+
+eni:
+  enabled: true
+  awsReleaseExcessIPs: true
+
+# eBPF host routing for pod traffic.
+bpf:
+  hostLegacyRouting: false
+
+# Hubble off for the baseline — enable when observability lands.
+hubble:
+  enabled: false

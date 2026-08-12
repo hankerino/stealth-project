@@ -1,8 +1,8 @@
-# IRSA roles. Trust: the cluster OIDC provider; audience sts.amazonaws.com.
+# IRSA role for the trading-engine service account.
+# (The AWS Load Balancer Controller role + helm release live in the eks
+# module since the EKS PRD — this layer only consumes the controller.)
 
 data "aws_iam_policy_document" "irsa_trust" {
-  for_each = toset(["trading-engine", "aws-load-balancer-controller"])
-
   statement {
     effect  = "Allow"
     actions = ["sts:AssumeRoleWithWebIdentity"]
@@ -21,20 +21,14 @@ data "aws_iam_policy_document" "irsa_trust" {
     condition {
       test     = "StringEquals"
       variable = "${replace(local.oidc_issuer, "https://", "")}:sub"
-      values = [
-        each.value == "aws-load-balancer-controller"
-        ? "system:serviceaccount:kube-system:aws-load-balancer-controller"
-        : "system:serviceaccount:exchange:trading-engine"
-      ]
+      values   = ["system:serviceaccount:exchange:trading-engine"]
     }
   }
 }
 
-# --------------------------------------------------------- trading-engine ---
-
 resource "aws_iam_role" "trading_engine" {
   name               = "${var.environment}-trading-engine"
-  assume_role_policy = data.aws_iam_policy_document.irsa_trust["trading-engine"].json
+  assume_role_policy = data.aws_iam_policy_document.irsa_trust.json
 }
 
 # RDS master secret read + MSK (IAM) client access. Redis is SG-reachability
@@ -79,26 +73,4 @@ resource "aws_iam_role_policy" "trading_engine" {
   name   = "${var.environment}-trading-engine"
   role   = aws_iam_role.trading_engine.id
   policy = data.aws_iam_policy_document.trading_engine.json
-}
-
-# ------------------------------------------ aws-load-balancer-controller ---
-
-# Official IAM policy for the controller, pinned by chart/controller version.
-data "http" "lbc_policy" {
-  url = "https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.9.2/docs/install/iam_policy.json"
-}
-
-resource "aws_iam_policy" "lb_controller" {
-  name   = "${var.environment}-aws-load-balancer-controller"
-  policy = data.http.lbc_policy.response_body
-}
-
-resource "aws_iam_role" "lb_controller" {
-  name               = "${var.environment}-aws-lbc"
-  assume_role_policy = data.aws_iam_policy_document.irsa_trust["aws-load-balancer-controller"].json
-}
-
-resource "aws_iam_role_policy_attachment" "lb_controller" {
-  role       = aws_iam_role.lb_controller.name
-  policy_arn = aws_iam_policy.lb_controller.arn
 }

@@ -102,5 +102,6 @@ resource "kubernetes_manifest" "trading_engine_tgb" {
     }
   }
 
-  depends_on = [helm_release.lb_controller]
+  # The AWS Load Balancer Controller is installed by the eks module — apply
+  # that layer first so the TargetGroupBinding CRD exists.
 }

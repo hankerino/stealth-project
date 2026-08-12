@@ -7,10 +7,6 @@ output "trading_engine_role_arn" {
   value       = aws_iam_role.trading_engine.arn
 }
 
-output "lb_controller_role_arn" {
-  value = aws_iam_role.lb_controller.arn
-}
-
 output "endpoint_ids" {
   description = "VPC endpoints created in vpc-core."
   value       = merge({ for k, v in aws_vpc_endpoint.interface : k => v.id }, { s3 = aws_vpc_endpoint.s3.id })

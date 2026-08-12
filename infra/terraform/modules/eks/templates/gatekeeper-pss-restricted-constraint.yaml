@@ -1,0 +1,14 @@
+apiVersion: constraints.gatekeeper.sh/v1beta1
+kind: K8sRequiredLabels
+metadata:
+  name: namespaces-require-pss-restricted
+spec:
+  match:
+    kinds:
+      - apiGroups: [""]
+        kinds: ["Namespace"]
+    # PRD carve-outs + Gatekeeper's own namespace.
+    excludedNamespaces: ["kube-system", "karpenter", "gatekeeper-system"]
+  parameters:
+    labels:
+      - pod-security.kubernetes.io/enforce
