@@ -167,6 +167,28 @@ resource "aws_eks_access_policy_association" "admin" {
   }
 }
 
+# CI runner role: deploys workloads via kubectl from vpc-mgmt. Cluster-admin
+# in dev — scope this down for prod.
+resource "aws_eks_access_entry" "ci" {
+  count = var.ci_role_arn != "" ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = var.ci_role_arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "ci" {
+  count = var.ci_role_arn != "" ? 1 : 0
+
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = aws_eks_access_entry.ci[0].principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+}
+
 # ------------------------------------------------------------------ addons ---
 
 resource "aws_eks_addon" "kube_proxy" {

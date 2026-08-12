@@ -75,6 +75,21 @@ data "aws_iam_policy_document" "ci_runner" {
     resources = ["*"]
   }
 
+  # Push to the shared-services repos (the repo policy's CIPush statement
+  # is the other half of this cross-account grant).
+  statement {
+    sid    = "ECRPush"
+    effect = "Allow"
+    actions = [
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:InitiateLayerUpload",
+      "ecr:UploadLayerPart",
+      "ecr:CompleteLayerUpload",
+      "ecr:PutImage",
+    ]
+    resources = ["arn:aws:ecr:${var.aws_region}:${var.shared_services_account_id}:repository/*"]
+  }
+
   statement {
     sid    = "ArtifactsBucketRW"
     effect = "Allow"

@@ -47,3 +47,9 @@ variable "ecr_images_to_keep" {
   type        = number
   default     = 30
 }
+
+variable "ci_push_role_arns" {
+  description = "IAM role ARNs (per-environment CI runner roles) allowed to PUSH images. Everyone in the org can pull; pushing is explicit."
+  type        = list(string)
+  default     = []
+}

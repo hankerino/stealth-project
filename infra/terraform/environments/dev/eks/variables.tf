@@ -54,6 +54,12 @@ variable "admin_role_arn" {
   default     = ""
 }
 
+variable "ci_role_arn" {
+  description = "CI runner role ARN — gets a cluster-admin access entry so pipelines can kubectl (dev posture)."
+  type        = string
+  default     = ""
+}
+
 variable "system_node_instance_types" {
   type    = list(string)
   default = ["t3.large"]

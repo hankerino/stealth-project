@@ -37,8 +37,8 @@ resource "aws_ecr_lifecycle_policy" "this" {
   })
 }
 
-# Any principal in the organization may pull (not push) images. Push stays
-# with CI roles created per environment.
+# Any principal in the organization may pull (not push) images. Push is
+# granted only to the per-environment CI runner roles.
 resource "aws_ecr_repository_policy" "org_pull" {
   for_each = aws_ecr_repository.this
 
@@ -46,19 +46,33 @@ resource "aws_ecr_repository_policy" "org_pull" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [{
-      Sid       = "OrgPull"
-      Effect    = "Allow"
-      Principal = "*"
-      Action = [
-        "ecr:GetDownloadUrlForLayer",
-        "ecr:BatchGetImage",
-        "ecr:BatchCheckLayerAvailability",
-        "ecr:DescribeImages",
-      ]
-      Condition = {
-        StringEquals = { "aws:PrincipalOrgID" = var.organization_id }
-      }
-    }]
+    Statement = concat(
+      [{
+        Sid       = "OrgPull"
+        Effect    = "Allow"
+        Principal = "*"
+        Action = [
+          "ecr:GetDownloadUrlForLayer",
+          "ecr:BatchGetImage",
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:DescribeImages",
+        ]
+        Condition = {
+          StringEquals = { "aws:PrincipalOrgID" = var.organization_id }
+        }
+      }],
+      length(var.ci_push_role_arns) > 0 ? [{
+        Sid       = "CIPush"
+        Effect    = "Allow"
+        Principal = { AWS = var.ci_push_role_arns }
+        Action = [
+          "ecr:BatchCheckLayerAvailability",
+          "ecr:InitiateLayerUpload",
+          "ecr:UploadLayerPart",
+          "ecr:CompleteLayerUpload",
+          "ecr:PutImage",
+        ]
+      }] : []
+    )
   })
 }

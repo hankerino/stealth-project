@@ -1,0 +1,56 @@
+name: api
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/api/**"
+      - ".github/workflows/api.yml"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: api
+  K8S_NAMESPACE: exchange
+  K8S_DEPLOYMENT: trading-engine
+
+jobs:
+  build-push-deploy:
+    # Self-hosted runner fleet in vpc-mgmt (TGW access to the cluster,
+    # instance-profile AWS creds). See infra/terraform/environments/dev/ci.
+    runs-on: [self-hosted, linux, dev]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolve values
+        id: vars
+        run: |
+          echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "registry=${{ secrets.ECR_REGISTRY }}" >> "$GITHUB_OUTPUT"
+
+      - name: Build image
+        working-directory: services/api
+        run: |
+          docker build \
+            --build-arg APP_VERSION=${{ steps.vars.outputs.sha_short }} \
+            -t ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPO }}:${{ steps.vars.outputs.sha_short }} \
+            .
+
+      - name: ECR login
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS --password-stdin ${{ steps.vars.outputs.registry }}
+
+      - name: Push image
+        # ECR repos are IMMUTABLE: tags are git-sha, never overwritten.
+        run: docker push ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPO }}:${{ steps.vars.outputs.sha_short }}
+
+      - name: Deploy to EKS
+        run: |
+          aws eks update-kubeconfig --name dev-exchange --region ${{ env.AWS_REGION }}
+          kubectl -n ${{ env.K8S_NAMESPACE }} set image \
+            deployment/${{ env.K8S_DEPLOYMENT }} \
+            api=${{ steps.vars.outputs.registry }}/${{ env.ECR_REPO }}:${{ steps.vars.outputs.sha_short }}
+          kubectl -n ${{ env.K8S_NAMESPACE }} rollout status \
+            deployment/${{ env.K8S_DEPLOYMENT }} --timeout=180s

@@ -48,6 +48,16 @@ variable "artifacts_bucket_arn" {
   type        = string
 }
 
+variable "shared_services_account_id" {
+  description = "Shared-services account ID — scopes the runner's ECR push permission."
+  type        = string
+
+  validation {
+    condition     = can(regex("^[0-9]{12}$", var.shared_services_account_id))
+    error_message = "shared_services_account_id must be a 12-digit AWS account ID."
+  }
+}
+
 # ---- runner fleet ---------------------------------------------------------
 
 variable "github_owner" {

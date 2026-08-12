@@ -44,8 +44,10 @@ resource "kubernetes_deployment" "trading_engine" {
         service_account_name = kubernetes_service_account.trading_engine.metadata[0].name
 
         container {
-          name  = "api"
-          image = "${var.ecr_registry}/api:latest"
+          name = "api"
+          # Placeholder only. ECR tags are immutable (git-sha per build) and
+          # CI sets the real image on every deploy (kubectl set image).
+          image = "${var.ecr_registry}/api:bootstrap"
 
           port {
             name           = "https"
