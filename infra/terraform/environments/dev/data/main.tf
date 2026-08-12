@@ -1,6 +1,6 @@
-# Shared plumbing for the data layer: network state, KMS key, and the
-# security groups that gate each service to vpc-core (workloads) + vpc-mgmt
-# (tooling). vpc-data subnets have no internet route by design.
+# Data layer instantiation for dev — thin wrapper over modules/data.
+# Subnet IDs / VPC ID / CIDRs come from the dev/network state (apply the
+# network layer first).
 
 data "terraform_remote_state" "network" {
   backend = "s3"
@@ -11,95 +11,31 @@ data "terraform_remote_state" "network" {
   }
 }
 
-locals {
-  data_vpc_id     = data.terraform_remote_state.network.outputs.vpc_ids["vpc-data"]
+module "data" {
+  source = "../../../modules/data"
+
+  environment  = var.environment
+  project_name = var.project_name
+
+  vpc_id          = data.terraform_remote_state.network.outputs.vpc_ids["vpc-data"]
   data_subnet_ids = data.terraform_remote_state.network.outputs.subnet_ids["vpc-data"].data
+  client_cidr     = data.terraform_remote_state.network.outputs.vpc_cidrs["vpc-core"]
 
-  # Who may reach the data plane.
-  client_cidrs = ["10.10.0.0/16", "10.40.0.0/16"] # vpc-core, vpc-mgmt
-}
+  # PRD sizing (dev).
+  db_instance_class        = "db.r6g.large"
+  msk_broker_instance_type = "kafka.m5.large"
+  msk_auto_create_topics   = true # dev convenience; false in prod
+  redis_node_type          = "cache.r6g.large"
+  redis_clusters           = 2
 
-resource "aws_kms_key" "data" {
-  description         = "${var.environment} data plane encryption (RDS/Redis/MSK)"
-  enable_key_rotation = true
-}
+  deletion_protection = true # PRD: enabled
 
-resource "aws_kms_alias" "data" {
-  name          = "alias/${var.environment}-data"
-  target_key_id = aws_kms_key.data.key_id
-}
-
-# One SG per service — tight ports, workload CIDRs only.
-
-resource "aws_security_group" "rds" {
-  name        = "${var.environment}-rds-postgres"
-  description = "PostgreSQL from core/mgmt"
-  vpc_id      = local.data_vpc_id
-
-  ingress {
-    description = "postgres"
-    from_port   = 5432
-    to_port     = 5432
-    protocol    = "tcp"
-    cidr_blocks = local.client_cidrs
+  bucket_names = {
+    app_data   = "compute-exchange-dev-app-data"
+    audit_logs = "compute-exchange-dev-audit-logs"
+    backups    = "compute-exchange-dev-backups"
   }
 
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${var.environment}-rds-sg" }
-}
-
-resource "aws_security_group" "redis" {
-  name        = "${var.environment}-redis"
-  description = "Redis from core/mgmt"
-  vpc_id      = local.data_vpc_id
-
-  ingress {
-    description = "redis"
-    from_port   = 6379
-    to_port     = 6379
-    protocol    = "tcp"
-    cidr_blocks = local.client_cidrs
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${var.environment}-redis-sg" }
-}
-
-resource "aws_security_group" "msk" {
-  name        = "${var.environment}-msk"
-  description = "Kafka from core/mgmt"
-  vpc_id      = local.data_vpc_id
-
-  # 9092 plaintext (off), 9094 TLS, 9096 SASL/IAM, 9098 IAM
-  dynamic "ingress" {
-    for_each = [9094, 9096, 9098]
-    content {
-      description = "kafka-${ingress.value}"
-      from_port   = ingress.value
-      to_port     = ingress.value
-      protocol    = "tcp"
-      cidr_blocks = local.client_cidrs
-    }
-  }
-
-  egress {
-    from_port   = 0
-    to_port     = 0
-    protocol    = "-1"
-    cidr_blocks = ["0.0.0.0/0"]
-  }
-
-  tags = { Name = "${var.environment}-msk-sg" }
+  shared_key_alias = "compute-exchange-dev-key"
+  audit_key_alias  = "compute-exchange-dev-audit-key"
 }

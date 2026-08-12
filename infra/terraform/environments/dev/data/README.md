@@ -1,26 +1,26 @@
-# dev/data — exchange data plane in vpc-data
+# dev/data — data layer per Phase 0 Step 4 PRD
 
-Reads `dev/network` via remote state. Everything sits in the private-data
-subnets (no internet route by design) behind per-service security groups that
-only admit vpc-core (workloads) and vpc-mgmt (tooling).
+Thin instantiation of the reusable module `infra/terraform/modules/data/`.
+**The network layer must be applied first** — subnet IDs, the vpc-data VPC ID,
+and the vpc-core CIDR are read from `dev/network` state and passed into the
+module as variables.
 
-## Services
+## What the module builds (PRD mapping)
 
-| Service | What | Dev shape |
-|---|---|---|
-| RDS PostgreSQL 16.4 | transactional store (orders, trades, accounts) | db.t3.medium, gp3 50→200 GB autoscale, single-AZ, 7-day backups, KMS, Performance Insights. Master password auto-generated into Secrets Manager (`rds_master_secret_arn` output) — no password in Terraform state. |
-| ElastiCache Redis 7.1 | hot market state / order book | 1× cache.t3.micro, at-rest KMS + transit TLS. No auth token in dev (SG-gated private tier) — add one for prod. |
-| MSK Kafka 3.6 | event streaming | 3× kafka.t3.small (one per AZ), TLS in transit, KMS at rest, **IAM client auth** (pairs with EKS IRSA). No plaintext listener. |
+| PRD | Resource |
+|---|---|
+| Aurora PostgreSQL 16, provisioned | `db.r6g.large` writer + reader, backtrack 24h, deletion protection ON, CMK-encrypted, 5432 from vpc-core only |
+| MSK Kafka 3.6 | 3× kafka.m5.large (one per AZ), TLS client auth, CMK, 9094 from vpc-core only, `auto.create.topics.enable=true` (dev) via an MSK configuration |
+| ElastiCache Redis 7 | 2× cache.r6g.large Multi-AZ with automatic failover, at-rest CMK + transit TLS, 6379 from vpc-core only |
+| S3 ×3 | `compute-exchange-dev-app-data`, `-audit-logs`, `-backups` — versioned, public-access-blocked, SSE-KMS, TLS-deny policy |
+| Object Lock | audit-logs: **compliance mode, 7-year** default retention |
+| KMS | shared `alias/compute-exchange-dev-key` (Aurora/MSK/Redis/app-data/backups) + dedicated `alias/compute-exchange-dev-audit-key` (audit-logs) |
 
-## Cost note
+## Cost note (dev)
 
-MSK is the expensive line item here (~$150/mo even at dev sizing). If the dev
-cluster isn't streaming yet, apply this layer without `msk.tf` first or
-destroy the cluster between sessions.
-
-## Prereqs
-
-- `dev/network` applied.
+This is the expensive layer: Aurora 2× r6g.large ≈ $350/mo, MSK m5.large ×3
+≈ $450/mo, Redis r6g.large ×2 ≈ $150/mo. Roughly **$950–1000/mo** applied
+24/7. Apply it when there's something to store, not before.
 
 ## Run
 
@@ -33,16 +33,11 @@ terraform plan -out=data.tfplan
 terraform apply data.tfplan
 ```
 
-## Connecting (from EKS pods in vpc-core)
+## Notes
 
-```bash
-# DB credentials (from a host with AWS creds):
-aws secretsmanager get-secret-value \
-  --secret-id <rds_master_secret_arn> --query SecretString --output text
-
-# MSK: use the IAM bootstrap string (msk_bootstrap_iam output) with a client
-# that supports SASL OAUTHBEARER via aws-msk-iam-auth; the pod's IRSA role
-# needs kafka-cluster:Connect/DescribeCluster/… on this cluster.
-```
-
-Endpoints for all three services are in `terraform output`.
+- Bucket names are S3-global — if a name is taken, override
+  `bucket_names` in the module call.
+- The audit bucket's compliance retention cannot be shortened after the fact;
+  that's the point. Think before writing test objects into it.
+- Aurora master credentials are RDS-managed into Secrets Manager
+  (`aurora_master_secret_arn` output).

@@ -1,25 +1,23 @@
-output "rds_endpoint" {
-  description = "PostgreSQL writer endpoint."
-  value       = aws_db_instance.this.endpoint
+output "aurora_writer_endpoint" {
+  value = module.data.aurora_writer_endpoint
 }
 
-output "rds_master_secret_arn" {
-  description = "Secrets Manager ARN holding the RDS master credentials (RDS-managed)."
-  value       = aws_db_instance.this.master_user_secret[0].secret_arn
+output "aurora_reader_endpoint" {
+  value = module.data.aurora_reader_endpoint
 }
 
-output "redis_primary_endpoint" {
-  value = aws_elasticache_replication_group.this.primary_endpoint_address
+output "aurora_master_secret_arn" {
+  value = module.data.aurora_master_secret_arn
 }
 
 output "msk_bootstrap_tls" {
-  value = aws_msk_cluster.this.bootstrap_brokers_tls
+  value = module.data.msk_bootstrap_tls
 }
 
-output "msk_bootstrap_iam" {
-  value = aws_msk_cluster.this.bootstrap_brokers_sasl_iam
+output "redis_primary_endpoint" {
+  value = module.data.redis_primary_endpoint
 }
 
-output "data_kms_key_arn" {
-  value = aws_kms_key.data.arn
+output "bucket_names" {
+  value = module.data.bucket_names
 }
