@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+
+dev_account_id       = "012345678901"
+state_bucket         = "cte-terraform-state-012345678901"
+artifacts_bucket_arn = "arn:aws:s3:::cte-ci-artifacts-012345678901" # shared-services output
+github_owner         = "hankerino"   # org or repo owner
+github_repo          = ""            # set for repo-level runners

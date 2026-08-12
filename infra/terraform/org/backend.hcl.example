@@ -1,0 +1,8 @@
+# Example runtime backend config. Copy to backend.hcl, fill in, then:
+#   terraform init -backend-config=backend.hcl
+# (backend.hcl is gitignored — it names real infrastructure.)
+
+bucket         = "cte-terraform-state-012345678901" # S3 state bucket (created in bootstrap step)
+key            = "org/terraform.tfstate"
+region         = "eu-central-1"
+dynamodb_table = "cte-terraform-locks"

@@ -1,0 +1,8 @@
+# Copy to terraform.tfvars (gitignored) and fill in.
+
+dev_account_id = "012345678901"
+state_bucket   = "cte-terraform-state-012345678901"
+
+# TLS (optional but recommended): set both to get ACM + HTTPS + the A record.
+# edge_domain           = "api.dev.compute-exchange.com"
+# public_hosted_zone_id = "Z0123456789ABCDEFGHIJ"

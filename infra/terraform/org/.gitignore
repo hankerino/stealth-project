@@ -1,0 +1,7 @@
+# Local secrets/state — never commit.
+terraform.tfvars
+backend.hcl
+.terraform/
+*.tfstate
+*.tfstate.backup
+crash.log

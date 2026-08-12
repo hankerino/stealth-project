@@ -1,0 +1,7 @@
+# Example. Copy to backend.hcl and fill in (gitignored).
+# Same state bucket as the org layer, different key.
+
+bucket         = "cte-terraform-state-012345678901"
+key            = "dev/network/terraform.tfstate"
+region         = "eu-central-1" # region of the STATE bucket, not the VPCs
+dynamodb_table = "cte-terraform-locks"

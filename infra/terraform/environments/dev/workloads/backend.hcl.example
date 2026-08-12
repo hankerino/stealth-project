@@ -1,0 +1,6 @@
+# Example. Copy to backend.hcl (gitignored) and fill in.
+
+bucket         = "cte-terraform-state-012345678901"
+key            = "dev/workloads/terraform.tfstate"
+region         = "eu-central-1"
+dynamodb_table = "cte-terraform-locks"

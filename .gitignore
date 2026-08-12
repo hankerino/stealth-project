@@ -1,0 +1,17 @@
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+crash.log
+.terraform.lock.hcl
+
+# Local config / secrets
+terraform.tfvars
+backend.hcl
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/

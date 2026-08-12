@@ -1,0 +1,10 @@
+# Copy to terraform.tfvars and fill in. terraform.tfvars is gitignored.
+
+# Domain used to build member-account root emails: security+aws@<domain>, etc.
+account_email_domain = "yourdomain.com"
+
+# The 12-digit ID of the management account you run terraform from.
+management_account_id = "012345678901"
+
+# Home region for regional resources.
+aws_region = "eu-central-1"
