@@ -1,0 +1,74 @@
+# Telemetry Verifier deployment.
+#
+# Config pattern (same as order): non-sensitive settings from a ConfigMap
+# `telemetry-verifier-config`, secrets from a Secret `telemetry-verifier-secrets`:
+#
+#   kubectl -n exchange create configmap telemetry-verifier-config \
+#     --from-literal=LISTEN_ADDR=:8082 \
+#     --from-literal=KAFKA_BROKERS=b-1.msk.amazonaws.com:9094 \
+#     --from-literal=KAFKA_TLS_ENABLED=true \
+#     --from-literal=REDIS_URL=redis://telemetry-verifier-redis:6379 \
+#     --from-literal=SLA_DOWNTIME_SECS=60 \
+#     --from-literal=SLA_UNDERPERF_WINDOW_SECS=600 \
+#     --from-literal=SLA_MIN_UTIL_PCT=50
+#   kubectl -n exchange create secret generic telemetry-verifier-secrets \
+#     --from-literal=DATABASE_URL='postgres://user:pass@aurora-endpoint:5432/exchange' \
+#     --from-literal=REGISTRATION_TOKEN='<platform-issued token>'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: telemetry-verifier
+  namespace: exchange
+  labels:
+    app: telemetry-verifier
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: telemetry-verifier
+  template:
+    metadata:
+      labels:
+        app: telemetry-verifier
+    spec:
+      containers:
+        - name: telemetry-verifier
+          # Placeholder only. ECR tags are immutable (git-sha per build) and
+          # CI sets the real image on every deploy (kubectl set image).
+          image: REPLACE_WITH_ECR_REGISTRY/telemetry-verifier:bootstrap
+          ports:
+            - name: http
+              containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: telemetry-verifier-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: telemetry-verifier-secrets
+                  key: DATABASE_URL
+            - name: REGISTRATION_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: telemetry-verifier-secrets
+                  key: REGISTRATION_TOKEN
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20

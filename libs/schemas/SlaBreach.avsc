@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "SlaBreach",
+  "namespace": "cte.events",
+  "doc": "SLA breach / penalty events from the telemetry-verifier to the `sla-breach-events` topic. Kafka key: contract_id.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "contract_id", "type": "string" },
+    { "name": "node_id", "type": "string" },
+    { "name": "event_type", "type": { "type": "enum", "name": "SlaEventType", "symbols": ["SlaViolated", "PenaltyCalculated"] } },
+    { "name": "breach_reason", "type": { "type": "enum", "name": "BreachReason", "symbols": ["DOWNTIME", "UNDERPERFORMANCE"] } },
+    { "name": "window_seconds", "type": "long", "doc": "evaluation window that triggered the breach" },
+    { "name": "uptime_pct", "type": ["null", "double"], "default": null },
+    { "name": "avg_utilization_pct", "type": ["null", "double"], "default": null },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}

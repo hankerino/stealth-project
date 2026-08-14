@@ -1,0 +1,45 @@
+syntax = "proto3";
+
+package cte.nodeagent.v1;
+
+option go_package = "github.com/hankerino/stealth-project/libs/proto/gen/nodeagent/v1;nodeagentv1";
+
+// Control-plane contract between seller node agents and the core platform.
+// The hot telemetry path is Kafka (node-telemetry topic); gRPC is for
+// registration and liveness only.
+service NodeAgent {
+  // First-boot registration: exchange a seller credential for a node_id.
+  rpc RegisterNode(RegisterNodeRequest) returns (RegisterNodeResponse);
+  // Periodic liveness; lighter than a telemetry payload.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+message GpuDescriptor {
+  string model = 1;  // e.g. "H100"
+  string uuid = 2;   // GPU serial/UUID from NVML — anti-fraud anchor
+  int64 vram_mb = 3;
+}
+
+message RegisterNodeRequest {
+  string seller_id = 1;
+  string registration_token = 2; // issued by the platform to the seller
+  repeated GpuDescriptor gpus = 3;
+  string public_key_pem = 4;     // Ed25519 public key the agent signs telemetry with
+}
+
+message RegisterNodeResponse {
+  string node_id = 1;
+  bool accepted = 2;
+  string reject_reason = 3;
+}
+
+message HeartbeatRequest {
+  string node_id = 1;
+  string seller_id = 2;
+  int64 sent_at_unix_ms = 3;
+  string signature = 4; // base64 Ed25519 over sha256(node_id || sent_at_unix_ms)
+}
+
+message HeartbeatResponse {
+  bool ok = 1;
+}

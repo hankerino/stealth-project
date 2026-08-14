@@ -1,0 +1,31 @@
+{
+  "type": "record",
+  "name": "NodeTelemetry",
+  "namespace": "cte.events",
+  "doc": "Signed telemetry envelope published to the `node-telemetry` topic by seller node agents (every 5s). Kafka key: node_id. Signature: base64 Ed25519 over SHA-256 of the canonical JSON of the `payload` field (keys sorted, no whitespace). Verified against seller_nodes.public_key in Aurora.",
+  "fields": [
+    { "name": "payload", "type": {
+      "type": "record", "name": "TelemetryPayload", "fields": [
+        { "name": "node_id", "type": "string" },
+        { "name": "seller_id", "type": "string" },
+        { "name": "active_contract_id", "type": ["null", "string"], "default": null },
+        { "name": "timestamp_unix_ms", "type": "long" },
+        { "name": "metrics", "type": {
+          "type": "record", "name": "GpuMetrics", "fields": [
+            { "name": "gpu_model", "type": "string" },
+            { "name": "gpu_uuid", "type": "string" },
+            { "name": "utilization_pct", "type": "double" },
+            { "name": "vram_used_mb", "type": "long" },
+            { "name": "vram_total_mb", "type": "long" },
+            { "name": "power_watts", "type": "double" },
+            { "name": "temperature_c", "type": "double" },
+            { "name": "active_processes", "type": "int" },
+            { "name": "pcie_tx_mbps", "type": "double" },
+            { "name": "pcie_rx_mbps", "type": "double" }
+          ]
+        } }
+      ]
+    } },
+    { "name": "signature", "type": "string", "doc": "base64 Ed25519 signature of sha256(canonical_json(payload))" }
+  ]
+}

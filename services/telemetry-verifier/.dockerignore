@@ -1,0 +1,6 @@
+target
+k8s
+examples
+README.md
+.dockerignore
+Dockerfile

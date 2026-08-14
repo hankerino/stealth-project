@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "NodeHealthEvent",
+  "namespace": "cte.events",
+  "doc": "Node liveness state transitions from the telemetry-verifier to the `node-health-events` topic. Kafka key: node_id.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "node_id", "type": "string" },
+    { "name": "seller_id", "type": "string" },
+    { "name": "state", "type": { "type": "enum", "name": "NodeState", "symbols": ["NodeOnline", "NodeDegraded", "NodeOffline"] } },
+    { "name": "detail", "type": ["null", "string"], "default": null },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}
