@@ -36,11 +36,14 @@ type TradeExecuted struct {
 }
 
 // SettlementFailed event payload (published to sla-breach-events topic).
+// Matches libs/schemas/SettlementFailed.avsc.
 type SettlementFailed struct {
 	EventID          string `json:"event_id"`
 	TradeID          string `json:"trade_id"`
+	Symbol           string `json:"symbol"`
 	BuyerID          string `json:"buyer_id"`
 	SellerID         string `json:"seller_id"`
+	TotalCost        int64  `json:"total_cost"`
 	Reason           string `json:"reason"`
 	OccurredAtUnixMs int64  `json:"occurred_at_unix_ms"`
 }
@@ -131,7 +134,7 @@ func (s *settlementService) settleTrade(ctx context.Context, t *TradeExecuted) e
 			return fmt.Errorf("commit failed trade: %w", err)
 		}
 		// Emit SettlementFailed event (best-effort, outside the tx).
-		s.emitSettlementFailed(t.TradeID, buyerID, sellerID, "INSUFFICIENT_FUNDS")
+		s.emitSettlementFailed(t.TradeID, t.Symbol, buyerID, sellerID, totalCost, "INSUFFICIENT_FUNDS")
 		log.Printf("trade %s FAILED: buyer %s has %d cents, needs %d", t.TradeID, buyerID, buyerBalance, totalCost)
 		return nil
 	}
@@ -218,15 +221,17 @@ func (s *settlementService) getBalance(ctx context.Context, userID string) (int6
 }
 
 // emitSettlementFailed publishes a SettlementFailed event (best-effort).
-func (s *settlementService) emitSettlementFailed(tradeID, buyerID, sellerID, reason string) {
+func (s *settlementService) emitSettlementFailed(tradeID, symbol, buyerID, sellerID string, totalCost int64, reason string) {
 	if s.failedEventProducer == nil {
 		return
 	}
 	ev := SettlementFailed{
 		EventID:          newUUID(),
 		TradeID:          tradeID,
+		Symbol:           symbol,
 		BuyerID:          buyerID,
 		SellerID:         sellerID,
+		TotalCost:        totalCost,
 		Reason:           reason,
 		OccurredAtUnixMs: time.Now().UnixMilli(),
 	}
