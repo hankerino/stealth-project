@@ -26,15 +26,32 @@ pub struct ConsumerDeps {
 }
 
 pub async fn run(brokers: &str, tls_enabled: bool, deps: ConsumerDeps) -> Result<()> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", brokers)
+    let mut cfg = ClientConfig::new();
+    cfg.set("bootstrap.servers", brokers)
         .set("group.id", "telemetry-verifier")
         .set("enable.auto.commit", "true")
-        .set("auto.offset.reset", "latest")
-        .set(
-            "security.protocol",
-            if tls_enabled { "SSL" } else { "PLAINTEXT" },
-        )
+        .set("auto.offset.reset", "latest");
+
+    // mTLS: when KAFKA_TLS_ENABLED is true, load client cert/key/CA from
+    // env-specified paths (KAFKA_CLIENT_CERT, KAFKA_CLIENT_KEY, KAFKA_CA_CERT).
+    // Falls back to TLS-only (no client cert) if those paths are unset.
+    if tls_enabled {
+        cfg.set("security.protocol", "SSL");
+        let ca_path = std::env::var("KAFKA_CA_CERT").unwrap_or_default();
+        let cert_path = std::env::var("KAFKA_CLIENT_CERT").unwrap_or_default();
+        let key_path = std::env::var("KAFKA_CLIENT_KEY").unwrap_or_default();
+        if !ca_path.is_empty() {
+            cfg.set("ssl.ca.location", &ca_path);
+        }
+        if !cert_path.is_empty() && !key_path.is_empty() {
+            cfg.set("ssl.certificate.location", &cert_path);
+            cfg.set("ssl.key.location", &key_path);
+        }
+    } else {
+        cfg.set("security.protocol", "PLAINTEXT");
+    }
+
+    let consumer: StreamConsumer = cfg
         .create()
         .context("create kafka consumer")?;
 

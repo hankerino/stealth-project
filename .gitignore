@@ -18,3 +18,11 @@ backend.hcl
 
 # Rust
 target/
+
+# Go binaries
+*.exe
+services/*/order
+services/*/settlement
+services/*/catalog
+services/*/api
+node_modules/

@@ -65,8 +65,14 @@ resource "aws_msk_cluster" "this" {
     }
   }
 
+  # MSK mTLS: require client certificates signed by the PCA root CA.
+  # The `tls` block with no sub-attributes enables TLS client auth.
+  # For mTLS with a private CA, the broker trusts the PCA root certificate;
+  # clients must present a cert signed by that CA.
   client_authentication {
-    tls {} # TLS client authentication (per PRD)
+    tls {
+      certificate_authority_arns = [aws_acmpca_certificate_authority.kafka_mtls.arn]
+    }
   }
 
   tags = { Name = "${var.environment}-exchange-msk" }

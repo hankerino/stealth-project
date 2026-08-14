@@ -20,18 +20,30 @@ pub async fn run(
     state: Arc<RwLock<MarketState>>,
     hub: Hub,
 ) -> Result<()> {
-    let consumer: StreamConsumer = ClientConfig::new()
-        .set("bootstrap.servers", &brokers)
+    let mut cfg = ClientConfig::new();
+    cfg.set("bootstrap.servers", &brokers)
         .set("group.id", "market-data")
         .set("enable.auto.commit", "true")
-        .set("auto.offset.reset", "latest")
-        // MSK enforces TLS (`client_broker = "TLS"`, port 9094); dev-local
-        // Kafka runs PLAINTEXT. NOTE: MSK also requires TLS *client* auth —
-        // wiring client certs (External Secrets) is a follow-up.
-        .set(
-            "security.protocol",
-            if tls_enabled { "SSL" } else { "PLAINTEXT" },
-        )
+        .set("auto.offset.reset", "latest");
+
+    // mTLS: load client cert/key/CA from env paths when TLS is enabled.
+    if tls_enabled {
+        cfg.set("security.protocol", "SSL");
+        let ca_path = std::env::var("KAFKA_CA_CERT").unwrap_or_default();
+        let cert_path = std::env::var("KAFKA_CLIENT_CERT").unwrap_or_default();
+        let key_path = std::env::var("KAFKA_CLIENT_KEY").unwrap_or_default();
+        if !ca_path.is_empty() {
+            cfg.set("ssl.ca.location", &ca_path);
+        }
+        if !cert_path.is_empty() && !key_path.is_empty() {
+            cfg.set("ssl.certificate.location", &cert_path);
+            cfg.set("ssl.key.location", &key_path);
+        }
+    } else {
+        cfg.set("security.protocol", "PLAINTEXT");
+    }
+
+    let consumer: StreamConsumer = cfg
         .create()
         .context("create kafka consumer")?;
 

@@ -12,4 +12,9 @@ echo "  redis     : localhost:6379"
 echo "  redpanda  : localhost:9092  (Kafka API)  admin: localhost:9644"
 echo
 echo "Create the Kafka topics once (idempotent):"
-echo "  docker exec cte-dev-redpanda-1 rpk topic create orders trades order-updates node-telemetry node-health-events sla-breach-events"
+echo "  docker exec cte-dev-redpanda-1 rpk topic create orders trades order-updates node-telemetry node-health-events sla-breach-events settlement-failed-events"
+echo
+echo "Apply settlement migrations (idempotent):"
+echo "  PGPASSWORD=dev-only-change-me psql -h localhost -U exchange -d exchange -f ../services/settlement/db/migrations/0001_settlement.up.sql"
+echo "Apply outbox migration (idempotent):"
+echo "  PGPASSWORD=dev-only-change-me psql -h localhost -U exchange -d exchange -f ../services/order/db/migrations/0002_outbox.up.sql"

@@ -1,0 +1,82 @@
+# Settlement Service deployment.
+#
+# Config pattern (same as order/telemetry-verifier): non-sensitive settings
+# from a ConfigMap, secrets from a Secret:
+#
+#   kubectl -n exchange create configmap settlement-config \
+#     --from-literal=LISTEN_ADDR=:8083 \
+#     --from-literal=KAFKA_BROKERS=b-1.msk.amazonaws.com:9094 \
+#     --from-literal=KAFKA_TLS_ENABLED=true
+#   kubectl -n exchange create secret generic settlement-secrets \
+#     --from-literal=DATABASE_URL='postgres://user:pass@aurora-endpoint:5432/exchange'
+#
+# mTLS certs (when MSK mTLS is enabled) are mounted as files from the
+# kafka-mtls-certs Secret (provisioned by Terraform):
+#   KAFKA_CLIENT_CERT=/mnt/kafka-mtls/tls.crt
+#   KAFKA_CLIENT_KEY=/mnt/kafka-mtls/tls.key
+#   KAFKA_CA_CERT=/mnt/kafka-mtls/ca.crt
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: settlement
+  namespace: exchange
+  labels:
+    app: settlement
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: settlement
+  template:
+    metadata:
+      labels:
+        app: settlement
+    spec:
+      containers:
+        - name: settlement
+          image: REPLACE_WITH_ECR_REGISTRY/settlement:bootstrap
+          ports:
+            - name: http
+              containerPort: 8083
+          envFrom:
+            - configMapRef:
+                name: settlement-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: settlement-secrets
+                  key: DATABASE_URL
+            - name: KAFKA_CLIENT_CERT
+              value: /mnt/kafka-mtls/tls.crt
+            - name: KAFKA_CLIENT_KEY
+              value: /mnt/kafka-mtls/tls.key
+            - name: KAFKA_CA_CERT
+              value: /mnt/kafka-mtls/ca.crt
+          volumeMounts:
+            - name: kafka-mtls-certs
+              mountPath: /mnt/kafka-mtls
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        - name: kafka-mtls-certs
+          secret:
+            secretName: kafka-mtls-certs

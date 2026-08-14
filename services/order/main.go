@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	orderv1 "github.com/hankerino/stealth-project/libs/proto/gen/order/v1"
 	_ "github.com/lib/pq"
@@ -34,16 +37,24 @@ func main() {
 	}
 
 	var pub Publisher = nopPublisher{}
+	var kp *kafkaPublisher
 	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
-		kp := newKafkaPublisher(brokers, os.Getenv("KAFKA_TLS_ENABLED") == "true")
+		kp = newKafkaPublisher(brokers, os.Getenv("KAFKA_TLS_ENABLED") == "true")
 		defer kp.Close()
 		pub = kp
 		log.Printf("publishing order events to Kafka brokers %q topic %q", brokers, ordersTopic)
 	} else {
-		log.Print("KAFKA_BROKERS unset; using log-only publisher")
+		log.Print("KAFKA_BROKERS unset; using log-only publisher (outbox dispatcher will sleep)")
 	}
 
 	svc := &orderService{db: db, pub: pub}
+
+	// Start the transactional outbox dispatcher (polls every 500ms).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	dispatcher := newOutboxDispatcher(db, kp)
+	go dispatcher.Run(ctx)
+	log.Println("outbox dispatcher started (500ms poll)")
 
 	// REST front.
 	mux := http.NewServeMux()
@@ -71,5 +82,15 @@ func main() {
 	gs := grpc.NewServer()
 	orderv1.RegisterOrderServiceServer(gs, &grpcServer{svc: svc})
 	log.Printf("order gRPC listening on %s", grpcAddr)
+
+	// Graceful shutdown on SIGTERM/SIGINT (stops gRPC, cancels outbox).
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sigCh
+		log.Println("shutdown signal received")
+		cancel()
+		gs.GracefulStop()
+	}()
 	log.Fatal(gs.Serve(lis))
 }

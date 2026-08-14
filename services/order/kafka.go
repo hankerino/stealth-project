@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -12,11 +14,13 @@ import (
 
 // kafkaPublisher publishes JSON events to MSK via segmentio/kafka-go.
 //
-// NOTE: MSK TLS client-certificate provisioning (mutual TLS) is a
-// follow-up. When KAFKA_TLS_ENABLED=true we dial the MSK TLS listener
-// (port 9094) with TLS but without a client certificate; until cert
-// provisioning lands, brokers must allow unauthenticated TLS clients
-// (or run within the VPC on the plaintext listener with TLS disabled).
+// TLS modes:
+//   - KAFKA_TLS_ENABLED=false (default): plaintext, no TLS (local dev).
+//   - KAFKA_TLS_ENABLED=true, no client cert: TLS to MSK's TLS listener (9094)
+//     without mutual auth — for brokers that allow unauthenticated TLS.
+//   - KAFKA_TLS_ENABLED=true + KAFKA_CLIENT_CERT_FILE + KAFKA_CLIENT_KEY_FILE
+//     + KAFKA_CA_CERT_FILE: mutual TLS (mTLS) — MSK requires a client
+//     certificate signed by the AWS Private CA. This is the production path.
 type kafkaPublisher struct {
 	w *kafka.Writer
 }
@@ -24,7 +28,7 @@ type kafkaPublisher struct {
 func newKafkaPublisher(brokers string, tlsEnabled bool) *kafkaPublisher {
 	var tlsCfg *tls.Config
 	if tlsEnabled {
-		tlsCfg = &tls.Config{MinVersion: tls.VersionTLS12}
+		tlsCfg = buildTLSConfig()
 	}
 	return &kafkaPublisher{w: &kafka.Writer{
 		Addr:         kafka.TCP(strings.Split(brokers, ",")...),
@@ -37,6 +41,40 @@ func newKafkaPublisher(brokers string, tlsEnabled bool) *kafkaPublisher {
 			IdleTimeout: 30 * time.Second,
 		},
 	}}
+}
+
+// buildTLSConfig assembles a *tls.Config from the KAFKA_* env vars.
+// If client cert/key files are set, mTLS is configured; otherwise it's
+// server-only TLS.
+func buildTLSConfig() *tls.Config {
+	cfg := &tls.Config{MinVersion: tls.VersionTLS12}
+
+	// Load CA certificate (for verifying the broker's cert).
+	if caFile := os.Getenv("KAFKA_CA_CERT_FILE"); caFile != "" {
+		caPEM, err := os.ReadFile(caFile)
+		if err != nil {
+			log.Fatalf("read KAFKA_CA_CERT_FILE %q: %v", caFile, err)
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(caPEM) {
+			log.Fatalf("no valid certs in KAFKA_CA_CERT_FILE %q", caFile)
+		}
+		cfg.RootCAs = pool
+	}
+
+	// Load client certificate + key for mTLS.
+	certFile := os.Getenv("KAFKA_CLIENT_CERT_FILE")
+	keyFile := os.Getenv("KAFKA_CLIENT_KEY_FILE")
+	if certFile != "" && keyFile != "" {
+		cert, err := tls.LoadX509KeyPair(certFile, keyFile)
+		if err != nil {
+			log.Fatalf("load client cert/key: %v", err)
+		}
+		cfg.Certificates = []tls.Certificate{cert}
+		log.Printf("kafka mTLS: loaded client cert from %s", certFile)
+	}
+
+	return cfg
 }
 
 func (p *kafkaPublisher) Publish(ctx context.Context, key string, event any) error {

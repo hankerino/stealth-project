@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "SettlementFailed",
+  "namespace": "cte.events",
+  "doc": "Published by the settlement service to the `sla-breach-events` topic when a trade cannot be settled (e.g. insufficient buyer escrow). Kafka key: trade_id.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "trade_id", "type": "string" },
+    { "name": "symbol", "type": "string" },
+    { "name": "buyer_id", "type": "string" },
+    { "name": "seller_id", "type": "string" },
+    { "name": "total_cost", "type": "long", "doc": "price_cents * quantity that the buyer could not cover" },
+    { "name": "reason", "type": "string", "doc": "e.g. INSUFFICIENT_FUNDS" },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}

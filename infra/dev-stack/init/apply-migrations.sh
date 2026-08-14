@@ -10,6 +10,26 @@ for f in /migrations/catalog/*.up.sql; do
   psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$f"
 done
 
+# order migrations (including outbox)
+if [ -d /migrations/order ]; then
+  echo "==> applying order migrations"
+  for f in /migrations/order/*.up.sql; do
+    [ -e "$f" ] || continue
+    echo "  -> $f"
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$f"
+  done
+fi
+
+# settlement migrations
+if [ -d /migrations/settlement ]; then
+  echo "==> applying settlement migrations"
+  for f in /migrations/settlement/*.up.sql; do
+    [ -e "$f" ] || continue
+    echo "  -> $f"
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$f"
+  done
+fi
+
 # telemetry-verifier tables (created idempotently by the service too)
 psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 CREATE TABLE IF NOT EXISTS seller_nodes (

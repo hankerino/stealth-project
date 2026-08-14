@@ -1,0 +1,72 @@
+name: settlement
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "services/settlement/**"
+      - ".github/workflows/settlement.yml"
+  workflow_dispatch:
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPO: settlement
+  K8S_NAMESPACE: exchange
+  K8S_DEPLOYMENT: settlement
+
+jobs:
+  build-push-deploy:
+    runs-on: [self-hosted, linux, dev]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Test
+        working-directory: services/settlement
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Resolve values
+        id: vars
+        run: |
+          echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+          echo "registry=${{ vars.REGISTRY }}" >> "$GITHUB_OUTPUT"
+          if [ -z "${{ vars.REGISTRY }}" ]; then
+            echo "registry=ghcr.io/${{ github.repository_owner }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build image
+        working-directory: services/settlement
+        run: |
+          docker build \
+            --build-arg APP_VERSION=${{ steps.vars.outputs.sha_short }} \
+            -t ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPO }}:${{ steps.vars.outputs.sha_short }} \
+            .
+
+      - name: GHCR login
+        if: startsWith(steps.vars.outputs.registry, 'ghcr.io')
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+
+      - name: ECR login
+        if: startsWith(steps.vars.outputs.registry, 'ghcr.io') == false
+        run: |
+          aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | docker login --username AWS --password-stdin ${{ steps.vars.outputs.registry }}
+
+      - name: Push image
+        run: docker push ${{ steps.vars.outputs.registry }}/${{ env.ECR_REPO }}:${{ steps.vars.outputs.sha_short }}
+
+      - name: Deploy to EKS
+        run: |
+          aws eks update-kubeconfig --name dev-exchange --region ${{ env.AWS_REGION }}
+          kubectl -n ${{ env.K8S_NAMESPACE }} set image \
+            deployment/${{ env.K8S_DEPLOYMENT }} \
+            settlement=${{ steps.vars.outputs.registry }}/${{ env.ECR_REPO }}:${{ steps.vars.outputs.sha_short }}
+          kubectl -n ${{ env.K8S_NAMESPACE }} rollout status \
+            deployment/${{ env.K8S_DEPLOYMENT }} --timeout=180s

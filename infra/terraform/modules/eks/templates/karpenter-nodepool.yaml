@@ -10,6 +10,15 @@ spec:
         group: karpenter.k8s.aws
         kind: EC2NodeClass
         name: default
+      # startupTaints prevent pods from scheduling on a node until Cilium CNI
+      # is fully initialized. Cilium removes the taint via its node-init
+      # DaemonSet once the eBPF filesystem is mounted and the CNI config is
+      # written. Without this, pods land in ContainerCreating on fresh nodes
+      # because kubelet can't assign IP addresses before Cilium is ready.
+      startupTaints:
+        - key: node.cilium.io/agent-not-ready
+          value: "true"
+          effect: NoSchedule
       requirements:
         - key: karpenter.k8s.aws/instance-family
           operator: In

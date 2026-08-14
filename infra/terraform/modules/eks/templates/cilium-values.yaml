@@ -1,4 +1,13 @@
 # Cilium on EKS: eBPF dataplane + kube-proxy replacement, ENI IPAM.
+#
+# CNI bootstrap hardening:
+# - cni.exclusive: true — Cilium is the ONLY CNI plugin; prevents the AWS VPC
+#   CNI from racing to configure pods before Cilium is ready.
+# - nodeInit.enabled: true — ensures /sys/fs/bpf is mounted and the CNI
+#   binary/config are in place before any pod is scheduled.
+# - The Karpenter NodePool applies a `node.cilium.io/agent-not-ready` taint on
+#   fresh nodes; Cilium removes it once node-init completes and the agent is
+#   healthy. Pods with no toleration for that taint wait until Cilium is ready.
 kubeProxyReplacement: "true"
 
 k8sServiceHost: ${cluster_endpoint}
@@ -14,6 +23,23 @@ eni:
 # eBPF host routing for pod traffic.
 bpf:
   hostLegacyRouting: false
+
+# CNI: exclusive mode + node-init for reliable bootstrap.
+cni:
+  exclusive: true
+
+# node-init: mount eBPF filesystem, install CNI config/binaries before pods.
+nodeInit:
+  enabled: true
+
+# Remove the startup taint once Cilium is healthy on the node.
+# This is Cilium's built-in taint manager; it watches for the
+# node.cilium.io/agent-not-ready taint and removes it when the agent reports ready.
+taint:
+  enabled: true
+  effect: NoSchedule
+  key: node.cilium.io/agent-not-ready
+  value: "true"
 
 # Hubble off for the baseline — enable when observability lands.
 hubble:

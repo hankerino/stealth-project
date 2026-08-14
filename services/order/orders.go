@@ -162,7 +162,9 @@ type orderService struct {
 	pub Publisher
 }
 
-// placeOrder validates, persists (status OPEN), and publishes OrderPlaced.
+// placeOrder validates, persists (status OPEN), and enqueues an OrderPlaced
+// event in the outbox — all within a single database transaction. The outbox
+// dispatcher (outbox.go) publishes the event to Kafka asynchronously.
 func (s *orderService) placeOrder(ctx context.Context, in *OrderInput) (*Order, error) {
 	if err := validateOrder(in); err != nil {
 		return nil, err
@@ -179,17 +181,6 @@ func (s *orderService) placeOrder(ctx context.Context, in *OrderInput) (*Order, 
 		Status:      StatusOpen,
 		TimeInForce: in.TimeInForce,
 	}
-	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO orders (id, user_id, symbol, gpu_type, region, side,
-		                    price_cents, quantity, time_in_force)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-		RETURNING filled_quantity, status, created_at, updated_at`,
-		o.ID, o.UserID, o.Symbol, o.GPUType, o.Region, o.Side,
-		o.PriceCents, o.Quantity, o.TimeInForce,
-	).Scan(&o.FilledQuantity, &o.Status, &o.CreatedAt, &o.UpdatedAt)
-	if err != nil {
-		return nil, fmt.Errorf("insert order: %w", err)
-	}
 	ev := OrderPlaced{
 		EventID:          newUUID(),
 		OrderID:          o.ID,
@@ -204,21 +195,59 @@ func (s *orderService) placeOrder(ctx context.Context, in *OrderInput) (*Order, 
 		Quantity:         o.Quantity,
 		OccurredAtUnixMs: time.Now().UnixMilli(),
 	}
-	if err := s.pub.Publish(ctx, o.Symbol, ev); err != nil {
-		// The order is durable; an event-bus outage must not fail the
-		// client call in Phase 1A. An outbox is a documented follow-up.
-		return o, fmt.Errorf("order persisted but publish failed: %w", err)
+	evPayload, _ := json.Marshal(ev)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback() // safe to call after commit
+
+	err = tx.QueryRowContext(ctx, `
+		INSERT INTO orders (id, user_id, symbol, gpu_type, region, side,
+		                    price_cents, quantity, time_in_force)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		RETURNING filled_quantity, status, created_at, updated_at`,
+		o.ID, o.UserID, o.Symbol, o.GPUType, o.Region, o.Side,
+		o.PriceCents, o.Quantity, o.TimeInForce,
+	).Scan(&o.FilledQuantity, &o.Status, &o.CreatedAt, &o.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("insert order: %w", err)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload)
+		VALUES ($1, 'order', $2, 'OrderPlaced', $3)`,
+		ev.EventID, o.ID, evPayload,
+	); err != nil {
+		return nil, fmt.Errorf("insert outbox: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 	return o, nil
 }
 
-// cancelOrder marks an open order CANCELLED and publishes OrderCancelled.
+// cancelOrder marks an open order CANCELLED and enqueues an OrderCancelled
+// event in the outbox — all within a single database transaction.
 func (s *orderService) cancelOrder(ctx context.Context, userID, orderID string) (*Order, error) {
 	if strings.TrimSpace(orderID) == "" {
 		return nil, errors.New("order_id is required")
 	}
 	var o Order
-	err := s.db.QueryRowContext(ctx, `
+	ev := OrderCancelled{
+		EventID: newUUID(),
+	}
+	evPayload, _ := json.Marshal(ev)
+
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	err = tx.QueryRowContext(ctx, `
 		UPDATE orders SET status = 'CANCELLED', updated_at = now()
 		WHERE id = $1 AND user_id = $2 AND status IN ('OPEN', 'PARTIALLY_FILLED')
 		RETURNING id, user_id, symbol, gpu_type, region, side, price_cents,
@@ -233,15 +262,24 @@ func (s *orderService) cancelOrder(ctx context.Context, userID, orderID string) 
 	if err != nil {
 		return nil, fmt.Errorf("cancel order: %w", err)
 	}
-	ev := OrderCancelled{
-		EventID:          newUUID(),
-		OrderID:          o.ID,
-		UserID:           o.UserID,
-		Symbol:           o.Symbol,
-		OccurredAtUnixMs: time.Now().UnixMilli(),
+
+	// Fill in the remaining event fields now that we have the order.
+	ev.OrderID = o.ID
+	ev.UserID = o.UserID
+	ev.Symbol = o.Symbol
+	ev.OccurredAtUnixMs = time.Now().UnixMilli()
+	evPayload, _ = json.Marshal(ev)
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO outbox_events (id, aggregate_type, aggregate_id, event_type, payload)
+		VALUES ($1, 'order', $2, 'OrderCancelled', $3)`,
+		ev.EventID, o.ID, evPayload,
+	); err != nil {
+		return nil, fmt.Errorf("insert outbox: %w", err)
 	}
-	if err := s.pub.Publish(ctx, o.Symbol, ev); err != nil {
-		return &o, fmt.Errorf("order cancelled but publish failed: %w", err)
+
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit: %w", err)
 	}
 	return &o, nil
 }
