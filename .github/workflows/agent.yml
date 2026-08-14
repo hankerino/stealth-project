@@ -36,9 +36,20 @@ jobs:
         id: vars
         run: |
           echo "sha_short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
-          echo "registry=${{ secrets.ECR_REGISTRY }}" >> "$GITHUB_OUTPUT"
+          # Registry: GHCR by default (cheap path). Set vars.REGISTRY to an ECR
+          # host when running on AWS.
+          echo "registry=${{ vars.REGISTRY }}" >> "$GITHUB_OUTPUT"
+          if [ -z "${{ vars.REGISTRY }}" ]; then
+            echo "registry=ghcr.io/${{ github.repository_owner }}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: GHCR login
+        if: startsWith(steps.vars.outputs.registry, 'ghcr.io')
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
       - name: ECR login
+        if: startsWith(steps.vars.outputs.registry, 'ghcr.io') == false
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
             | docker login --username AWS --password-stdin ${{ steps.vars.outputs.registry }}
