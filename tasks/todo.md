@@ -34,7 +34,7 @@ for every service it touches. "Done" = CI green.
       POST /v1/risk/check-margin; k8s + Dockerfile + CI.
 - [x] Order: call Risk CheckMargin via gRPC before accepting a FUTURES order;
       add order_type/contract_id to order entry + futures symbol handling.
-- [ ] Matching engine (Rust): SPOT vs FUTURES order types; expiry background task
+- [x] Matching engine (Rust): SPOT vs FUTURES order types; expiry background task
       -> on delivery_date, halt matching for symbol + emit ContractExpired.
 - [ ] Settlement MTM: daily worker (00:00 UTC) pulls settlement price (VWAP last
       10m) from market-data; per open futures position compute daily PnL, transfer

@@ -16,6 +16,7 @@ use rdkafka::util::Timeout;
 pub const ORDERS_TOPIC: &str = "orders";
 pub const TRADES_TOPIC: &str = "trades";
 pub const ORDER_UPDATES_TOPIC: &str = "order-updates";
+pub const CONTRACT_EVENTS_TOPIC: &str = "contract-events";
 pub const CONSUMER_GROUP: &str = "matching-engine";
 
 /// Apply mTLS / TLS settings to a ClientConfig. If `tls_enabled` is false this
