@@ -370,6 +370,8 @@ mod tests {
             time_in_force: tif,
             price_cents: price,
             quantity: qty,
+            order_kind: "SPOT".to_string(),
+            contract_id: 0,
             occurred_at_unix_ms: 0,
         }
     }
