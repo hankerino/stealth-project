@@ -85,6 +85,14 @@ func main() {
 	mux.HandleFunc("/v1/prices/historical", hist.handlePricesHistorical)
 	mux.HandleFunc("/v1/prices/index", hist.handlePricesIndex)
 
+	// Parquet offload to S3-compatible storage (R2/MinIO); enabled via S3_BUCKET.
+	if off, err := newOffloader(context.Background(), db); err != nil {
+		log.Fatalf("offloader: %v", err)
+	} else if off != nil {
+		mux.HandleFunc("/v1/admin/offload", off.handleOffload)
+		go off.Run(context.Background())
+	}
+
 	cert, err := selfSignedCert()
 	if err != nil {
 		log.Fatalf("tls cert: %v", err)
