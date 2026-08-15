@@ -8,6 +8,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"log"
 	"os"
 	"strings"
@@ -17,12 +18,14 @@ import (
 )
 
 const (
-	tradesTopic          = "trades"
+	tradesTopic           = "trades"
 	settlementFailedTopic = "sla-breach-events"
-	consumerGroup        = "settlement"
+	consumerGroup         = "settlement"
+
+	maxSettleBackoff = 30 * time.Second
 )
 
-// tlsConfig builds a *tls.Config for mTLS if KAFKA_TLS_ENABLED is true.
+// buildTLSConfig builds a *tls.Config for mTLS if KAFKA_TLS_ENABLED is true.
 // Client cert/key/CA are loaded from env-specified paths (KAFKA_CLIENT_CERT,
 // KAFKA_CLIENT_KEY, KAFKA_CA_CERT). If those are unset, falls back to TLS
 // without client auth (for dev environments without mTLS).
@@ -61,8 +64,8 @@ type kafkaConsumer struct {
 
 func newKafkaConsumer(brokers string, tlsEnabled bool) (*kafkaConsumer, error) {
 	dialer := &kafka.Dialer{
-		Timeout:   10 * time.Second,
-		Deadline:  time.Now().Add(30 * time.Second),
+		Timeout:  10 * time.Second,
+		Deadline: time.Now().Add(30 * time.Second),
 	}
 	if tlsEnabled {
 		dialer.TLS = buildTLSConfig()
@@ -74,30 +77,65 @@ func newKafkaConsumer(brokers string, tlsEnabled bool) (*kafkaConsumer, error) {
 		MinBytes: 1,
 		MaxBytes: 10e6,
 		Dialer:   dialer,
+		// CommitInterval left at 0: offsets are committed synchronously via
+		// CommitMessages only after a trade is durably settled (below).
 	})
 	return &kafkaConsumer{r: r}, nil
 }
 
+// run consumes the trades topic with at-least-once, in-order settlement.
+//
+// Offset handling: we FetchMessage (which does NOT auto-commit) and only
+// CommitMessages after settleTrade succeeds. settleTrade returns nil for both
+// business outcomes (SETTLED and FAILED) — those commit immediately. It
+// returns an error only for transient infrastructure failures (e.g. the DB is
+// unreachable); in that case we retry the SAME trade with bounded backoff
+// instead of committing, so no trade is ever skipped or lost. Because the
+// partition key is the symbol, this preserves per-book ordering. Malformed
+// ("poison") messages that can never be parsed are committed and skipped so
+// they don't wedge the partition.
 func (c *kafkaConsumer) run(svc *settlementService) error {
 	for {
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		msg, err := c.r.ReadMessage(ctx)
+		fetchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		msg, err := c.r.FetchMessage(fetchCtx)
 		cancel()
 		if err != nil {
-			if ctx.Err() != nil {
-				continue // timeout, retry
+			if errors.Is(err, context.DeadlineExceeded) {
+				continue // no message this interval; poll again
 			}
 			return err
 		}
 
 		var trade TradeExecuted
 		if err := json.Unmarshal(msg.Value, &trade); err != nil {
-			log.Printf("unmarshal trade: %v (offset %d)", err, msg.Offset)
+			log.Printf("settlement: poison message at offset %d: %v — skipping", msg.Offset, err)
+			c.commit(msg)
 			continue
 		}
-		if err := svc.settleTrade(context.Background(), &trade); err != nil {
-			log.Printf("settle trade %s: %v", trade.TradeID, err)
+
+		// Settle with bounded exponential backoff on transient errors. Business
+		// outcomes (SETTLED/FAILED) return nil and break immediately.
+		backoff := 500 * time.Millisecond
+		for {
+			if err := svc.settleTrade(context.Background(), &trade); err == nil {
+				break
+			} else {
+				log.Printf("settlement: trade %s transient error: %v — retrying in %s (offset %d not committed)",
+					trade.TradeID, err, backoff, msg.Offset)
+				time.Sleep(backoff)
+				if backoff < maxSettleBackoff {
+					backoff *= 2
+				}
+			}
 		}
+		c.commit(msg)
+	}
+}
+
+// commit synchronously commits the message's offset for the consumer group.
+func (c *kafkaConsumer) commit(msg kafka.Message) {
+	if err := c.r.CommitMessages(context.Background(), msg); err != nil {
+		log.Printf("settlement: commit offset %d: %v", msg.Offset, err)
 	}
 }
 

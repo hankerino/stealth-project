@@ -7,12 +7,20 @@ package main
 // 500ms, publishes unpublished events to the MSK `orders` topic, and marks
 // them published.
 //
-// Delivery semantics: at-least-once. The dispatcher publishes before marking
-// published_at; if it crashes after the Kafka write but before the UPDATE,
-// the event is re-published on restart. Consumers (matching-engine) must be
-// idempotent — they already are: duplicate OrderPlaced with the same
-// order_id is rejected (DUPLICATE_ORDER_ID); duplicate OrderCancelled on an
-// already-cancelled order is a no-op.
+// Concurrency: the order service runs multiple replicas (Deployment
+// replicas: 2, HPA up to 6), so every replica runs a dispatcher. Each poll
+// claims its batch with SELECT ... FOR UPDATE SKIP LOCKED inside a
+// transaction, so replicas take DISJOINT rows and never publish the same
+// event twice in the happy path. The rows stay locked until the tx commits
+// (after publish + marking published_at), so no other replica can grab them.
+//
+// Delivery semantics: at-least-once. Publish happens before the tx commits;
+// if the process crashes after the Kafka write but before COMMIT, the tx
+// rolls back, published_at is not set, and the event is re-published on the
+// next poll (by this or another replica). Consumers (matching-engine) are
+// idempotent — duplicate OrderPlaced with the same order_id is rejected
+// (DUPLICATE_ORDER_ID); duplicate OrderCancelled on an already-cancelled
+// order is a no-op.
 
 import (
 	"context"
@@ -74,16 +82,27 @@ func (d *outboxDispatcher) Run(ctx context.Context) {
 	}
 }
 
-// dispatchBatch reads up to outboxBatchSize unpublished events, publishes each,
-// and marks it published. A single failure in the batch logs and continues;
-// the next tick retries any still-unpublished rows.
+// dispatchBatch claims up to outboxBatchSize unpublished events with
+// FOR UPDATE SKIP LOCKED (so concurrent dispatchers take disjoint rows),
+// publishes each to Kafka, and marks it published — all inside one
+// transaction. On the first publish failure the batch stops and commits the
+// rows already published; the still-locked-then-rolled-back rows are retried
+// next tick. A publish that succeeds but whose COMMIT later fails is
+// re-published next tick (at-least-once).
 func (d *outboxDispatcher) dispatchBatch(ctx context.Context) error {
-	rows, err := d.db.QueryContext(ctx, `
+	tx, err := d.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() // no-op after a successful Commit
+
+	rows, err := tx.QueryContext(ctx, `
 		SELECT id, aggregate_type, aggregate_id, event_type, payload, created_at
 		FROM outbox_events
 		WHERE published_at IS NULL
 		ORDER BY created_at
-		LIMIT $1`, outboxBatchSize)
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED`, outboxBatchSize)
 	if err != nil {
 		return err
 	}
@@ -102,9 +121,14 @@ func (d *outboxDispatcher) dispatchBatch(ctx context.Context) error {
 		return err
 	}
 
+	if len(events) == 0 {
+		return tx.Commit() // release the (empty) transaction promptly
+	}
+
+	published := 0
 	for _, e := range events {
-		// The Kafka key is the symbol, which is the aggregate_id for orders.
-		// But the payload already contains the symbol field — extract it.
+		// The Kafka key is the symbol so all events for one book land on the
+		// same partition (in-order). The payload already carries "symbol".
 		key := extractSymbol(e.Payload)
 		if key == "" {
 			key = e.AggregateID
@@ -114,20 +138,25 @@ func (d *outboxDispatcher) dispatchBatch(ctx context.Context) error {
 			Key:   []byte(key),
 			Value: e.Payload,
 		}); err != nil {
-			log.Printf("outbox: publish failed for event %s: %v", e.ID, err)
-			continue // leave unpublished; retry next tick
+			log.Printf("outbox: publish failed for event %s: %v (committing %d already-published; retrying rest next tick)", e.ID, err, published)
+			break // commit what we've published; the rest stay unpublished
 		}
 
-		if _, err := d.db.ExecContext(ctx, `
+		if _, err := tx.ExecContext(ctx, `
 			UPDATE outbox_events SET published_at = now() WHERE id = $1`, e.ID); err != nil {
-			log.Printf("outbox: mark published failed for event %s: %v", e.ID, err)
-			// The event WAS published; marking failed. It will be re-published
-			// next tick (at-least-once). Log and continue.
+			// The event WAS published but marking failed inside the tx; abort
+			// the whole tx so we don't commit a partial/inconsistent batch.
+			// Everything rolls back and is re-published next tick.
+			return err
 		}
+		published++
 	}
 
-	if len(events) > 0 {
-		log.Printf("outbox: dispatched %d event(s)", len(events))
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	if published > 0 {
+		log.Printf("outbox: dispatched %d event(s)", published)
 	}
 	return nil
 }
