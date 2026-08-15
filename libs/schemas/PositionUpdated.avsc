@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "PositionUpdated",
+  "namespace": "cte.events",
+  "doc": "Published by the risk service to the `risk-events` topic whenever a user's position in a contract changes (from a trade). Kafka key: user_id.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "user_id", "type": "string" },
+    { "name": "contract_id", "type": "long" },
+    { "name": "symbol", "type": "string" },
+    { "name": "net_quantity", "type": "long", "doc": "signed net position after the update" },
+    { "name": "avg_entry_price_cents", "type": "long" },
+    { "name": "margin_posted_cents", "type": "long" },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}

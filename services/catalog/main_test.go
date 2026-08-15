@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestValidateGPUType(t *testing.T) {
 	cases := []struct {
@@ -47,5 +50,43 @@ func TestValidateRegion(t *testing.T) {
 					tc.code, tc.regName, err, tc.wantErr)
 			}
 		})
+	}
+}
+
+func TestValidateFutures(t *testing.T) {
+	future := time.Now().UTC().AddDate(0, 2, 0).Format("2006-01-02")
+	past := time.Now().UTC().AddDate(0, -1, 0).Format("2006-01-02")
+	base := func() futuresInput {
+		return futuresInput{GPUTypeID: 1, RegionCode: "us-east-1", DeliveryDate: future, TickSize: 100, ContractSize: 100}
+	}
+	cases := []struct {
+		name    string
+		mutate  func(*futuresInput)
+		wantErr bool
+	}{
+		{"valid", func(*futuresInput) {}, false},
+		{"missing gpu", func(in *futuresInput) { in.GPUTypeID = 0 }, true},
+		{"missing region", func(in *futuresInput) { in.RegionCode = "  " }, true},
+		{"bad date", func(in *futuresInput) { in.DeliveryDate = "2026/11/01" }, true},
+		{"past date", func(in *futuresInput) { in.DeliveryDate = past }, true},
+		{"zero tick", func(in *futuresInput) { in.TickSize = 0 }, true},
+		{"negative size", func(in *futuresInput) { in.ContractSize = -1 }, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := base()
+			tc.mutate(&in)
+			if err := validateFutures(&in); (err != nil) != tc.wantErr {
+				t.Fatalf("validateFutures(%+v) err=%v, wantErr=%v", in, err, tc.wantErr)
+			}
+		})
+	}
+}
+
+func TestFuturesSymbol(t *testing.T) {
+	got := futuresSymbol("H100", "us-east-1", "2026-11-01")
+	want := "H100:us-east-1:FUT:2026-11"
+	if got != want {
+		t.Fatalf("futuresSymbol = %q, want %q", got, want)
 	}
 }
