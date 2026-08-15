@@ -1,0 +1,38 @@
+name: order
+
+on:
+  push:
+    paths:
+      - "services/order/**"
+      - "libs/proto/order/**"
+      - "libs/proto/risk/**"
+      - "scripts/gen-proto.sh"
+      - ".github/workflows/order.yml"
+  pull_request:
+    paths:
+      - "services/order/**"
+      - "libs/proto/order/**"
+      - "libs/proto/risk/**"
+      - "scripts/gen-proto.sh"
+      - ".github/workflows/order.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate proto stubs (risk/v1)
+        run: bash scripts/gen-proto.sh
+      - name: Tidy, vet, test
+        working-directory: services/order
+        run: |
+          go mod tidy
+          go vet ./...
+          go test ./...

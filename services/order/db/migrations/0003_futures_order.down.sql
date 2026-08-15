@@ -1,0 +1,2 @@
+ALTER TABLE orders DROP COLUMN IF EXISTS contract_id;
+ALTER TABLE orders DROP COLUMN IF EXISTS order_kind;

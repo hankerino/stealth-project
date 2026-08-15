@@ -32,7 +32,7 @@ for every service it touches. "Done" = CI green.
 - [x] Risk service (services/risk/, Go): migrations positions, risk_parameters;
       Kafka consumer on trades + order-updates -> maintain positions; gRPC + REST
       POST /v1/risk/check-margin; k8s + Dockerfile + CI.
-- [ ] Order: call Risk CheckMargin via gRPC before accepting a FUTURES order;
+- [x] Order: call Risk CheckMargin via gRPC before accepting a FUTURES order;
       add order_type/contract_id to order entry + futures symbol handling.
 - [ ] Matching engine (Rust): SPOT vs FUTURES order types; expiry background task
       -> on delivery_date, halt matching for symbol + emit ContractExpired.

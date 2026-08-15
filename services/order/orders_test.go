@@ -66,6 +66,8 @@ func TestOrderPlacedEventContract(t *testing.T) {
 		TimeInForce:      TIFGTC,
 		PriceCents:       250,
 		Quantity:         4,
+		OrderKind:        KindSpot,
+		ContractID:       0,
 		OccurredAtUnixMs: 1720000000000,
 	}
 	payload, err := marshalEvent(ev)
@@ -79,7 +81,7 @@ func TestOrderPlacedEventContract(t *testing.T) {
 	wantFields := []string{
 		"event_id", "order_id", "user_id", "symbol", "gpu_type", "region",
 		"side", "order_type", "time_in_force", "price_cents", "quantity",
-		"occurred_at_unix_ms",
+		"order_kind", "contract_id", "occurred_at_unix_ms",
 	}
 	for _, f := range wantFields {
 		if _, ok := m[f]; !ok {

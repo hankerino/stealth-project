@@ -23,6 +23,8 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 // handleOrders serves POST /v1/orders and GET /v1/orders?user_id=.
+// A POST with contract_id > 0 is a FUTURES order (margin-checked); otherwise
+// it is a SPOT order on <gpu_type>:<region>.
 func (a *httpAPI) handleOrders(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodPost:
@@ -34,6 +36,7 @@ func (a *httpAPI) handleOrders(w http.ResponseWriter, r *http.Request) {
 			PriceCents  int64  `json:"price_cents"`
 			Quantity    int64  `json:"quantity"`
 			TimeInForce string `json:"time_in_force"`
+			ContractID  int64  `json:"contract_id"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid JSON body")
@@ -47,8 +50,14 @@ func (a *httpAPI) handleOrders(w http.ResponseWriter, r *http.Request) {
 			PriceCents:  req.PriceCents,
 			Quantity:    req.Quantity,
 			TimeInForce: req.TimeInForce,
+			ContractID:  req.ContractID,
 		})
 		if o == nil && err != nil {
+			var me *marginError
+			if errors.As(err, &me) {
+				writeError(w, http.StatusPaymentRequired, me.Error())
+				return
+			}
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
