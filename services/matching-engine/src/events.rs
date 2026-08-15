@@ -49,6 +49,10 @@ pub struct OrderPlaced {
     pub time_in_force: TimeInForce,
     pub price_cents: i64,
     pub quantity: i64,
+    #[serde(default)]
+    pub order_kind: String,
+    #[serde(default)]
+    pub contract_id: i64,
     pub occurred_at_unix_ms: i64,
 }
 
@@ -99,6 +103,19 @@ pub struct OrderUpdated {
     pub filled_quantity: i64,
     pub remaining_quantity: i64,
     pub reason: Option<String>,
+    pub occurred_at_unix_ms: i64,
+}
+
+/// `ContractExpired.avsc` — produced to the `contract-events` topic when a
+/// futures contract reaches its delivery date. Matching for the symbol halts.
+/// Kafka key: symbol.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ContractExpired {
+    pub event_id: String,
+    pub contract_id: i64,
+    pub symbol: String,
+    pub delivery_date: String,
+    pub final_settlement_price_cents: Option<i64>,
     pub occurred_at_unix_ms: i64,
 }
 

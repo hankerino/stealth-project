@@ -47,6 +47,8 @@ pub struct OrderBook {
     asks: BTreeMap<i64, VecDeque<RestingOrder>>,
     /// order_id -> (side, price) so cancels don't scan the book.
     index: HashMap<String, (Side, i64)>,
+    /// Set once a futures contract expires; a halted book rejects new orders.
+    pub halted: bool,
 }
 
 impl OrderBook {
@@ -72,6 +74,9 @@ impl OrderBook {
     pub fn place_order(&mut self, placed: &OrderPlaced) -> Vec<EngineEvent> {
         let symbol = placed.symbol.clone();
 
+        if self.halted {
+            return vec![self.update(placed, OrderStatus::Rejected, 0, placed.quantity.max(0), Some("CONTRACT_EXPIRED"))];
+        }
         if placed.price_cents <= 0 || placed.quantity <= 0 {
             return vec![self.update(placed, OrderStatus::Rejected, 0, placed.quantity.max(0), Some("INVALID_ORDER"))];
         }
@@ -365,6 +370,8 @@ mod tests {
             time_in_force: tif,
             price_cents: price,
             quantity: qty,
+            order_kind: "SPOT".to_string(),
+            contract_id: 0,
             occurred_at_unix_ms: 0,
         }
     }

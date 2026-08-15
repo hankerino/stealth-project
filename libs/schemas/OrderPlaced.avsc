@@ -4,17 +4,90 @@
   "namespace": "cte.events",
   "doc": "Published to the `orders` topic when the Order Service accepts an order. Kafka key: symbol.",
   "fields": [
-    { "name": "event_id", "type": "string", "doc": "UUIDv4, idempotency key" },
-    { "name": "order_id", "type": "string" },
-    { "name": "user_id", "type": "string" },
-    { "name": "symbol", "type": "string", "doc": "<GPU_TYPE>:<REGION>, e.g. H100:us-east-1" },
-    { "name": "gpu_type", "type": "string" },
-    { "name": "region", "type": "string" },
-    { "name": "side", "type": { "type": "enum", "name": "Side", "symbols": ["BUY", "SELL"] } },
-    { "name": "order_type", "type": { "type": "enum", "name": "OrderType", "symbols": ["LIMIT"] } },
-    { "name": "time_in_force", "type": { "type": "enum", "name": "TimeInForce", "symbols": ["GTC", "IOC", "FOK"] } },
-    { "name": "price_cents", "type": "long", "doc": "cents per GPU-hour" },
-    { "name": "quantity", "type": "long", "doc": "GPU-hours" },
-    { "name": "occurred_at_unix_ms", "type": "long" }
+    {
+      "name": "event_id",
+      "type": "string",
+      "doc": "UUIDv4, idempotency key"
+    },
+    {
+      "name": "order_id",
+      "type": "string"
+    },
+    {
+      "name": "user_id",
+      "type": "string"
+    },
+    {
+      "name": "symbol",
+      "type": "string",
+      "doc": "<GPU_TYPE>:<REGION>, e.g. H100:us-east-1"
+    },
+    {
+      "name": "gpu_type",
+      "type": "string"
+    },
+    {
+      "name": "region",
+      "type": "string"
+    },
+    {
+      "name": "side",
+      "type": {
+        "type": "enum",
+        "name": "Side",
+        "symbols": [
+          "BUY",
+          "SELL"
+        ]
+      }
+    },
+    {
+      "name": "order_type",
+      "type": {
+        "type": "enum",
+        "name": "OrderType",
+        "symbols": [
+          "LIMIT"
+        ]
+      }
+    },
+    {
+      "name": "time_in_force",
+      "type": {
+        "type": "enum",
+        "name": "TimeInForce",
+        "symbols": [
+          "GTC",
+          "IOC",
+          "FOK"
+        ]
+      }
+    },
+    {
+      "name": "price_cents",
+      "type": "long",
+      "doc": "cents per GPU-hour"
+    },
+    {
+      "name": "quantity",
+      "type": "long",
+      "doc": "GPU-hours"
+    },
+    {
+      "name": "order_kind",
+      "type": "string",
+      "default": "SPOT",
+      "doc": "SPOT | FUTURES"
+    },
+    {
+      "name": "contract_id",
+      "type": "long",
+      "default": 0,
+      "doc": "futures_contracts.id, 0 for spot"
+    },
+    {
+      "name": "occurred_at_unix_ms",
+      "type": "long"
+    }
   ]
 }

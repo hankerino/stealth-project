@@ -47,7 +47,21 @@ func main() {
 		log.Print("KAFKA_BROKERS unset; using log-only publisher (outbox dispatcher will sleep)")
 	}
 
-	svc := &orderService{db: db, pub: pub}
+	// Pre-trade margin checks for futures orders (Risk service, gRPC).
+	var risk RiskChecker = nopRiskChecker{}
+	if addr := os.Getenv("RISK_ADDR"); addr != "" {
+		rc, err := newRiskGRPCClient(addr)
+		if err != nil {
+			log.Fatalf("risk client: %v", err)
+		}
+		defer rc.Close()
+		risk = rc
+		log.Printf("futures margin checks enabled via Risk at %s", addr)
+	} else {
+		log.Print("RISK_ADDR unset; futures margin checks disabled (nop allow-all)")
+	}
+
+	svc := &orderService{db: db, pub: pub, risk: risk}
 
 	// Start the transactional outbox dispatcher (polls every 500ms).
 	ctx, cancel := context.WithCancel(context.Background())

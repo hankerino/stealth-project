@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package cte.risk.v1;
+
+option go_package = "github.com/hankerino/stealth-project/libs/proto/gen/risk/v1;riskv1";
+
+// Risk Service: pre-trade margin checks and position limits (Phase 2).
+// The Order Service calls CheckMargin before accepting a FUTURES order.
+service RiskService {
+  // CheckMargin returns whether the user has enough free escrow/margin to
+  // place the proposed order, plus the numbers behind the decision.
+  rpc CheckMargin(CheckMarginRequest) returns (CheckMarginResponse);
+  // GetPosition returns a user's current net position in one contract.
+  rpc GetPosition(GetPositionRequest) returns (GetPositionResponse);
+}
+
+enum Side {
+  SIDE_UNSPECIFIED = 0;
+  SIDE_BUY = 1;
+  SIDE_SELL = 2;
+}
+
+enum OrderKind {
+  ORDER_KIND_UNSPECIFIED = 0;
+  ORDER_KIND_SPOT = 1;
+  ORDER_KIND_FUTURES = 2;
+}
+
+message CheckMarginRequest {
+  string user_id = 1;
+  int64 contract_id = 2;      // futures_contracts.id (0 for spot)
+  string symbol = 3;          // order-book symbol
+  OrderKind order_kind = 4;
+  Side side = 5;
+  int64 price_cents = 6;      // limit price
+  int64 quantity = 7;         // GPU-hours (or contracts * contract_size)
+}
+
+message CheckMarginResponse {
+  bool allowed = 1;
+  int64 required_margin_cents = 2;   // initial margin the order would need
+  int64 available_cents = 3;         // free escrow the user has right now
+  int64 projected_position = 4;      // signed net position if the order fills
+  string reason = 5;                 // populated when allowed = false
+}
+
+message GetPositionRequest {
+  string user_id = 1;
+  int64 contract_id = 2;
+}
+
+message GetPositionResponse {
+  string user_id = 1;
+  int64 contract_id = 2;
+  string symbol = 3;
+  int64 net_quantity = 4;            // signed
+  int64 avg_entry_price_cents = 5;
+  int64 margin_posted_cents = 6;
+}

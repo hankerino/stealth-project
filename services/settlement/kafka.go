@@ -144,7 +144,7 @@ type kafkaProducer struct {
 	w *kafka.Writer
 }
 
-func newKafkaProducer(brokers string, tlsEnabled bool) (*kafkaProducer, error) {
+func newKafkaProducer(brokers string, tlsEnabled bool, topic string) (*kafkaProducer, error) {
 	var transport *kafka.Transport
 	if tlsEnabled {
 		transport = &kafka.Transport{
@@ -155,7 +155,7 @@ func newKafkaProducer(brokers string, tlsEnabled bool) (*kafkaProducer, error) {
 	}
 	w := &kafka.Writer{
 		Addr:         kafka.TCP(strings.Split(brokers, ",")...),
-		Topic:        settlementFailedTopic,
+		Topic:        topic,
 		Balancer:     &kafka.Hash{},
 		RequiredAcks: kafka.RequireAll,
 		Transport:    transport,

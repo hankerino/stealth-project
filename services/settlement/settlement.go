@@ -60,8 +60,9 @@ var errInsufficientFunds = errors.New("insufficient escrow balance")
 
 // settlementService holds the shared state used by the consumer and REST API.
 type settlementService struct {
-	db                 *sql.DB
+	db                  *sql.DB
 	failedEventProducer *kafkaProducer // nil in dev mode (no Kafka)
+	mtm                 *mtmRunner     // daily mark-to-market runner
 }
 
 // settleTrade processes one TradeExecuted event atomically:

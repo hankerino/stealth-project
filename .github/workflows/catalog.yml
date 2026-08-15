@@ -1,0 +1,26 @@
+name: catalog
+
+on:
+  push:
+    paths:
+      - "services/catalog/**"
+      - ".github/workflows/catalog.yml"
+  pull_request:
+    paths:
+      - "services/catalog/**"
+      - ".github/workflows/catalog.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Vet + test
+        working-directory: services/catalog
+        run: |
+          go vet ./...
+          go test ./...

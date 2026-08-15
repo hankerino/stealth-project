@@ -26,3 +26,7 @@ services/*/settlement
 services/*/catalog
 services/*/api
 node_modules/
+
+# Generated proto stubs (produced at build time by scripts/gen-proto.sh)
+libs/proto/gen/risk/
+services/*/risk

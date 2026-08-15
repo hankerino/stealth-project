@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: risk
+  namespace: exchange
+  labels:
+    app: risk
+spec:
+  type: ClusterIP
+  selector:
+    app: risk
+  ports:
+    - name: http
+      port: 8084
+      targetPort: http
+    - name: grpc
+      port: 9094
+      targetPort: grpc

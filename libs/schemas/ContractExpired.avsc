@@ -1,0 +1,38 @@
+{
+  "type": "record",
+  "name": "ContractExpired",
+  "namespace": "cte.events",
+  "doc": "Published by the matching engine to the `contract-events` topic when a futures contract reaches its delivery date. Matching for the symbol halts. Kafka key: symbol.",
+  "fields": [
+    {
+      "name": "event_id",
+      "type": "string"
+    },
+    {
+      "name": "contract_id",
+      "type": "long"
+    },
+    {
+      "name": "symbol",
+      "type": "string"
+    },
+    {
+      "name": "delivery_date",
+      "type": "string",
+      "doc": "ISO date YYYY-MM-DD"
+    },
+    {
+      "name": "final_settlement_price_cents",
+      "type": [
+        "null",
+        "long"
+      ],
+      "default": null,
+      "doc": "set by settlement MTM on the expiry run; null at emit time"
+    },
+    {
+      "name": "occurred_at_unix_ms",
+      "type": "long"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "MTMSettled",
+  "namespace": "cte.events",
+  "doc": "Published by the settlement service to the `settlement-events` topic for each position marked-to-market on the daily MTM run. Kafka key: user_id.",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "settlement_date", "type": "string", "doc": "ISO date YYYY-MM-DD of the MTM run" },
+    { "name": "contract_id", "type": "long" },
+    { "name": "symbol", "type": "string" },
+    { "name": "user_id", "type": "string" },
+    { "name": "net_quantity", "type": "long", "doc": "signed: +long / -short at MTM time" },
+    { "name": "prior_mark_cents", "type": "long" },
+    { "name": "settlement_price_cents", "type": "long", "doc": "VWAP of last 10 minutes of trading" },
+    { "name": "pnl_cents", "type": "long", "doc": "signed daily PnL applied to escrow" },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}
