@@ -1,0 +1,17 @@
+[package]
+name = "fix-gateway"
+version = "0.1.0"
+edition = "2021"
+description = "Compute Trading Exchange — FIX 4.4 gateway (Phase 3)"
+
+[lib]
+name = "fix_gateway"
+path = "src/lib.rs"
+
+[[bin]]
+name = "fix-gateway"
+path = "src/main.rs"
+
+# Batch 3a is dependency-free (std only): the FIX codec + session + a threaded
+# TCP server. Batch 3b adds tonic (gRPC to order) and rdkafka (ExecutionReports).
+[dependencies]

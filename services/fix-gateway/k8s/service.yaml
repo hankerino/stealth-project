@@ -1,0 +1,17 @@
+# ClusterIP for now; Batch 4 fronts this with a LoadBalancer / Cloudflare
+# Spectrum (cheap) or an AWS NLB (upgrade path) for external FIX sessions.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fix-gateway
+  namespace: exchange
+  labels:
+    app: fix-gateway
+spec:
+  type: ClusterIP
+  selector:
+    app: fix-gateway
+  ports:
+    - name: fix
+      port: 9878
+      targetPort: fix
