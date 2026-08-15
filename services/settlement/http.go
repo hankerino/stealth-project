@@ -5,6 +5,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 )
 
 type httpAPI struct {
@@ -68,4 +69,30 @@ func (a *httpAPI) handleBalance(w http.ResponseWriter, r *http.Request) {
 		"user_id": userID,
 		"balance": balance,
 	})
+}
+
+// handleMTMRun serves POST /v1/mtm/run — trigger a mark-to-market run.
+// Body (optional): {"date":"YYYY-MM-DD"}; defaults to today (UTC).
+func (a *httpAPI) handleMTMRun(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if a.svc.mtm == nil {
+		writeError(w, http.StatusServiceUnavailable, "mtm runner not configured")
+		return
+	}
+	var req struct {
+		Date string `json:"date"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req) // body optional
+	date := req.Date
+	if date == "" {
+		date = time.Now().UTC().Format("2006-01-02")
+	}
+	if err := a.svc.mtm.runOnce(r.Context(), date); err != nil {
+		writeError(w, http.StatusInternalServerError, "mtm run failed: "+err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "settlement_date": date})
 }

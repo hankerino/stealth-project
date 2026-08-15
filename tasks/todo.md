@@ -36,11 +36,11 @@ for every service it touches. "Done" = CI green.
       add order_type/contract_id to order entry + futures symbol handling.
 - [x] Matching engine (Rust): SPOT vs FUTURES order types; expiry background task
       -> on delivery_date, halt matching for symbol + emit ContractExpired.
-- [ ] Settlement MTM: daily worker (00:00 UTC) pulls settlement price (VWAP last
+- [x] Settlement MTM: daily worker (00:00 UTC) pulls settlement price (VWAP last
       10m) from market-data; per open futures position compute daily PnL, transfer
       escrow buyer<->seller, emit MTMSettled. Migration mtm_settlements.
 - [x] Schemas: ContractExpired.avsc, MTMSettled.avsc, PositionUpdated.avsc.
-- [ ] Verify: CI green for catalog, order, risk, settlement (Go) + matching-engine.
+- [x] Verify: CI green for catalog, order, risk, settlement (Go) + matching-engine.
 
 ## Phase 3 — Market Data, Index & Institutional APIs  (branch: phase-3-index-fix)
 - [ ] index-engine (services/index-engine/, Python): consume trades; VWAP per GPU
