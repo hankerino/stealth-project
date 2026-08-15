@@ -26,4 +26,4 @@ jobs:
         working-directory: services/index-engine
         run: |
           python -m compileall index_engine
-          pytest -q
+          python -m pytest -q
