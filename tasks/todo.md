@@ -29,7 +29,7 @@ for every service it touches. "Done" = CI green.
       delivery_date, tick_size, contract_size, status) + seed 1M/3M/6M forwards.
 - [x] Catalog API: POST /v1/futures-contracts, GET /v1/futures-contracts (active).
 - [x] Proto: libs/proto/risk/v1/risk.proto — CheckMargin RPC.
-- [ ] Risk service (services/risk/, Go): migrations positions, risk_parameters;
+- [x] Risk service (services/risk/, Go): migrations positions, risk_parameters;
       Kafka consumer on trades + order-updates -> maintain positions; gRPC + REST
       POST /v1/risk/check-margin; k8s + Dockerfile + CI.
 - [ ] Order: call Risk CheckMargin via gRPC before accepting a FUTURES order;

@@ -1,0 +1,36 @@
+name: risk
+
+on:
+  push:
+    paths:
+      - "services/risk/**"
+      - "libs/proto/risk/**"
+      - "scripts/gen-proto.sh"
+      - ".github/workflows/risk.yml"
+  pull_request:
+    paths:
+      - "services/risk/**"
+      - "libs/proto/risk/**"
+      - "scripts/gen-proto.sh"
+      - ".github/workflows/risk.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: arduino/setup-protoc@v3
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Generate proto stubs
+        run: bash scripts/gen-proto.sh
+      - name: Tidy, vet, test
+        working-directory: services/risk
+        run: |
+          go mod tidy
+          go vet ./...
+          go test ./...

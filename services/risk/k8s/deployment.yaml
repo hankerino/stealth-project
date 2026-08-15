@@ -1,0 +1,75 @@
+# Risk Service deployment.
+#
+#   kubectl -n exchange create configmap risk-config \
+#     --from-literal=LISTEN_ADDR=:8084 --from-literal=GRPC_ADDR=:9094 \
+#     --from-literal=KAFKA_BROKERS=b-1.msk.amazonaws.com:9094 \
+#     --from-literal=KAFKA_TLS_ENABLED=true
+#   kubectl -n exchange create secret generic risk-secrets \
+#     --from-literal=DATABASE_URL='postgres://user:pass@host:5432/exchange'
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: risk
+  namespace: exchange
+  labels:
+    app: risk
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: risk
+  template:
+    metadata:
+      labels:
+        app: risk
+    spec:
+      containers:
+        - name: risk
+          image: REPLACE_WITH_ECR_REGISTRY/risk:bootstrap
+          ports:
+            - name: http
+              containerPort: 8084
+            - name: grpc
+              containerPort: 9094
+          envFrom:
+            - configMapRef:
+                name: risk-config
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: risk-secrets
+                  key: DATABASE_URL
+            - name: KAFKA_CLIENT_CERT
+              value: /mnt/kafka-mtls/tls.crt
+            - name: KAFKA_CLIENT_KEY
+              value: /mnt/kafka-mtls/tls.key
+            - name: KAFKA_CA_CERT
+              value: /mnt/kafka-mtls/ca.crt
+          volumeMounts:
+            - name: kafka-mtls-certs
+              mountPath: /mnt/kafka-mtls
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+      volumes:
+        - name: kafka-mtls-certs
+          secret:
+            secretName: kafka-mtls-certs
