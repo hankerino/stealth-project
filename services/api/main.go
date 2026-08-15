@@ -14,6 +14,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"database/sql"
 	"encoding/json"
 	"encoding/pem"
 	"log"
@@ -24,6 +25,8 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	_ "github.com/lib/pq"
 )
 
 var startedAt = time.Now().UTC()
@@ -61,6 +64,26 @@ func main() {
 			"uptimeSec": int(time.Since(startedAt).Seconds()),
 		})
 	})
+
+	// Historical market-data API (Phase 3). Reads the shared trade_ledger.
+	var db *sql.DB
+	if dsn := os.Getenv("DATABASE_URL"); dsn != "" {
+		var err error
+		db, err = sql.Open("postgres", dsn)
+		if err != nil {
+			log.Fatalf("open db: %v", err)
+		}
+		if err := db.Ping(); err != nil {
+			log.Fatalf("ping db: %v", err)
+		}
+		log.Print("historical API: database connected")
+	} else {
+		log.Print("DATABASE_URL unset; historical endpoints return 503")
+	}
+	hist := &historyAPI{db: db}
+	mux.HandleFunc("/v1/trades/historical", hist.handleTradesHistorical)
+	mux.HandleFunc("/v1/prices/historical", hist.handlePricesHistorical)
+	mux.HandleFunc("/v1/prices/index", hist.handlePricesIndex)
 
 	cert, err := selfSignedCert()
 	if err != nil {

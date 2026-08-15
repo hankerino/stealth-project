@@ -1,0 +1,27 @@
+name: api-test
+
+on:
+  push:
+    paths:
+      - "services/api/**"
+      - ".github/workflows/api-test.yml"
+  pull_request:
+    paths:
+      - "services/api/**"
+      - ".github/workflows/api-test.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - name: Tidy, vet, test
+        working-directory: services/api
+        run: |
+          go mod tidy
+          go vet ./...
+          go test ./...
