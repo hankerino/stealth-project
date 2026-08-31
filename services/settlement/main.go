@@ -15,11 +15,13 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	_ "github.com/lib/pq"
 )
@@ -83,14 +85,9 @@ func main() {
 		log.Print("KAFKA_BROKERS unset; consumer + MTM scheduler off (dev mode); POST /v1/mtm/run still works")
 	}
 
-	// Graceful cancel of the scheduler on SIGTERM/SIGINT.
+	// Shutdown handling is wired up below, once srv exists.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
-	go func() {
-		<-sigCh
-		log.Println("shutdown signal received")
-		cancel()
-	}()
 
 	// REST API.
 	mux := http.NewServeMux()
@@ -103,6 +100,30 @@ func main() {
 	mux.HandleFunc("/v1/mtm/run", api.handleMTMRun)
 
 	addr := envOr("LISTEN_ADDR", ":8083")
+	srv := &http.Server{Addr: addr, Handler: mux}
+
+	// Graceful shutdown on SIGTERM/SIGINT: cancel the MTM scheduler, then stop
+	// the HTTP server so main returns and the process exits. Without the
+	// Shutdown the process hung forever in ListenAndServe — signal.Notify
+	// suppresses the default SIGTERM termination (same pattern as
+	// services/order's gs.GracefulStop). The Kafka consumer is not joined on
+	// purpose: its offset is committed only after a trade is settled, so
+	// abandoning an in-flight fetch is safe (at-least-once redelivery), and
+	// kafka-go's Reader.Close would block on that in-flight fetch instead.
+	go func() {
+		<-sigCh
+		log.Println("shutdown signal received")
+		cancel()
+		shutdownCtx, release := context.WithTimeout(context.Background(), 5*time.Second)
+		defer release()
+		if err := srv.Shutdown(shutdownCtx); err != nil {
+			log.Printf("http shutdown: %v", err)
+		}
+	}()
+
 	log.Printf("settlement REST listening on %s", addr)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatalf("http server: %v", err)
+	}
+	log.Println("settlement stopped")
 }
