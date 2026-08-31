@@ -160,7 +160,7 @@ cd ../telemetry-verifier && cargo test
 # 2. Build multi-arch binaries for the Node Agent
 docker buildx build --platform linux/amd64,linux/arm64 \
   -t <ACCOUNT_ID>.dkr.ecr.us-east-1.amazonaws.com/node-agent:latest \
-  -f services/node-node/Dockerfile . --push
+  -f services/node-agent/Dockerfile . --push
 
 # 3. Trigger GitOps deployment
 git add .
@@ -168,9 +168,48 @@ git commit -m "feat: deploy node agent and telemetry verifier pipeline"
 git push origin main
 ```
 
-## 7. Operational & Technical Next Steps (Phase 1B)
+## 7. Operational & Technical Next Steps (Phase 1C state)
 
-- [ ] **MSK Mutual TLS**: Finalize two-way TLS client-certificate generation for services/telemetry-verifier and services/order.
-- [ ] **Transactional Outbox Pattern**: Implement outbox producers in services/order to guarantee atomic writes between Aurora PG and Kafka order topics.
-- [ ] **Trade Settlement Consumer**: Build the asynchronous settlement worker to process executed trades from Kafka and manage escrow allocation.
-- [ ] **Cilium Bootstrap Handling**: Ensure the initial deployment handles the transient NotReady node state during Cilium CNI initialization automatically.
+**Verified end-to-end on the cheap dev stack** (`scripts/e2e-full-loop.sh`,
+2026-08-31): seller node registration → Ed25519-signed telemetry →
+telemetry-verifier (signature verify, NodeOnline) → catalog reference data
+(H100/us-east-1) → escrow deposit → SELL+BUY orders via services/order
+(transactional outbox) → match in matching-engine → `TradeExecuted` →
+market-data WS fan-out → settlement (escrow moved, `trade_ledger` SETTLED)
+→ `SlaViolated(DOWNTIME)` + `PenaltyCalculated` on `sla-breach-events`.
+
+Done:
+- [x] **Transactional Outbox** in services/order (Phase 1B).
+- [x] **Trade Settlement Consumer** with escrow allocation (Phase 1B).
+- [x] **One-command dev stack** (`scripts/dev-up.sh`): compose up,
+      migrations + seed re-applied idempotently, six Kafka topics, smoke
+      check. Falls back to a local KRaft Kafka (`/tmp/kafka`) when the
+      redpanda image pull is rate-limited; active mode in
+      `infra/dev-stack/.kafka-mode`.
+- [x] **Repeatable full-loop e2e** (`scripts/e2e-full-loop.sh`) — fresh
+      UUIDs per run, trading topics reset, prints PASS/FAIL per stage.
+- [x] **Avro schema pins**: every produced/consumed Kafka event is
+      validated against `libs/schemas/*.avsc` in unit tests (order,
+      settlement, matching-engine, telemetry-verifier). Fixed drift found
+      this phase: verifier `register` TEXT→uuid cast against the real
+      seller_nodes schema; `seller_id` type aligned to uuid; nullable event
+      fields now serialize as explicit null (NodeHealthEvent.detail,
+      SlaBreach.uptime_pct/avg_utilization_pct); matching-engine
+      rdkafka-sys pin.
+
+Open (next phases):
+- [ ] **MSK Mutual TLS** client-certificate provisioning (AWS path only —
+      dev stack is plaintext).
+- [ ] **Catalog capacity API**: listing seller capacity per GPU type needs
+      the `seller_nodes.gpu_type_id` (uuid) vs `gpu_types.id` (bigserial)
+      drift resolved first; today capacity is the `seller_nodes` row and
+      catalog carries the GPU-type/region taxonomy only.
+- [ ] **Book-depth restore** from Redis snapshots (aggregated levels only;
+      richer snapshot format needed).
+- [ ] **Per-contract SLA terms** + real penalty formula (placeholder
+      `SLA_PENALTY_CREDITS_PER_MIN` rate today).
+- [ ] **gRPC server** for the node control plane (HTTP/JSON shim today;
+      proto is the contract of record).
+- [ ] **Cilium bootstrap handling** for transient NotReady nodes (EKS path).
+- [ ] **market-data quote approximation**: `OrderUpdated` carries neither
+      price nor side; quotes are approximations (documented in its README).

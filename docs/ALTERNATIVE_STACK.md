@@ -17,19 +17,35 @@ remain as the production upgrade path — this path replaces them for dev only.
 | Secrets Manager / IRSA | k8s Secrets or `.env` files | documented per service README |
 | Terraform layers | skipped | kept for the funded phase |
 
-## Run it locally (what we verified on 2026-08-14)
+## Run it locally
 
 ```bash
-scripts/dev-up.sh        # postgres + redis (+ redpanda when Docker Hub allows)
+scripts/dev-up.sh        # postgres + redis + kafka, migrations, seed, topics, smoke check
+scripts/dev-down.sh      # stop (add --nuke to wipe volumes)
 ```
 
-Verified state: postgres 16 healthy with all catalog + telemetry tables
-(gpu_types, regions, sla_templates, seller_nodes, contract_sla_logs,
-seller_node_metrics), redis healthy, Kafka produce/consume working.
+`dev-up.sh` is idempotent and does everything: brings the compose services
+up, re-applies all migrations (they only auto-apply on a fresh volume),
+seeds catalog reference data, creates the six Kafka topics, and verifies
+every table exists.
 
-> Note: Docker Hub's anonymous pull rate limit can transiently block the
-> `redpanda` image pull. It's not a compose defect — retry or pull
-> authenticated. postgres/redis pulled fine throughout.
+**Kafka = redpanda, or local KRaft Kafka as fallback.** Docker Hub's
+anonymous pull rate limit can block the redpanda image for hours on a given
+IP (observed on this dev box). When the pull fails, `dev-up.sh` falls back
+to a KRaft Kafka tarball in `/tmp/kafka` — the same substitute
+`scripts/e2e-telemetry-test.sh` uses — and records the active mode in
+`infra/dev-stack/.kafka-mode` (read by the e2e scripts). Services see the
+same `KAFKA_BROKERS=localhost:9092` either way; no config changes.
+
+Verified state (2026-08-31, kraft mode): postgres 16 healthy with all
+catalog + order + settlement + telemetry tables (gpu_types, regions,
+sla_templates, orders, outbox_events, escrow_accounts, trade_ledger,
+seller_nodes, contract_sla_logs, seller_node_metrics), redis healthy,
+topics created, Kafka produce/consume working.
+
+> Note: compose needs the container daemon socket. On this podman box:
+> `systemctl --user start podman.socket` (dev-up.sh fails with a clear
+> message if it's down).
 
 ## Services on the cheap path
 
