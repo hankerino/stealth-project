@@ -1,0 +1,283 @@
+# Compute Trading Exchange — Render blueprint (DRAFT, not yet deployed).
+#
+# Everything runs on the smallest plans (cheap-path rule — these are starting
+# points; bump per service when load appears). All services MUST land in one
+# region: private networking (KAFKA_BROKERS, REDIS_URL, pserv addresses) is
+# region-local. Kafka runs as a private redpanda service because Render has
+# no managed Kafka; its private DNS name is the service name (`redpanda`),
+# so KAFKA_BROKERS is a fixed value here, and --advertise-kafka-addr below
+# must match it.
+#
+# Env conventions mirror infra/dev-stack/.env.example and the e2e scripts:
+#   DATABASE_URL (fromDatabase), REDIS_URL (fromService), KAFKA_BROKERS,
+#   KAFKA_TLS_ENABLED=false (plaintext on the private network; mTLS is the
+#   AWS/MSK path, see docs/ARCHITECTURE.md).
+
+services:
+  # ---------------------------------------------------------------------
+  # Web services (HTTP)
+  # ---------------------------------------------------------------------
+
+  - type: web
+    name: cte-catalog
+    runtime: go
+    plan: starter
+    buildCommand: mkdir -p bin && cd services/catalog && go build -o ../../bin/catalog .
+    startCommand: ./bin/catalog
+    healthCheckPath: /healthz
+    # Migrations run here (idempotent) before every catalog deploy — the
+    # cheapest stand-in for a one-off job. Manual fallback in docs/RENDER.md.
+    preDeployCommand: apt-get update -qq && apt-get install -y -qq postgresql-client && ./scripts/render-migrate.sh
+    envVars:
+      - key: GO_VERSION
+        value: "1.22"
+      - key: PORT
+        value: "8080"
+      - key: LISTEN_ADDR
+        value: ":8080"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cte-postgres
+          property: connectionString
+
+  - type: web
+    name: cte-order
+    runtime: go
+    plan: starter
+    buildCommand: mkdir -p bin && cd services/order && go build -o ../../bin/order .
+    startCommand: ./bin/order
+    healthCheckPath: /healthz
+    envVars:
+      - key: GO_VERSION
+        value: "1.22"
+      - key: PORT
+        value: "8090"
+      - key: LISTEN_ADDR
+        value: ":8090"      # public REST
+      - key: GRPC_ADDR
+        value: ":9090"      # gRPC front — private-network only on Render
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cte-postgres
+          property: connectionString
+      - key: KAFKA_BROKERS
+        value: redpanda:9092
+      - key: KAFKA_TLS_ENABLED
+        value: "false"
+
+  - type: web
+    name: cte-settlement
+    runtime: go
+    plan: starter
+    buildCommand: mkdir -p bin && cd services/settlement && go build -o ../../bin/settlement .
+    startCommand: ./bin/settlement
+    healthCheckPath: /healthz
+    envVars:
+      - key: GO_VERSION
+        value: "1.22"
+      - key: PORT
+        value: "8083"
+      - key: LISTEN_ADDR
+        value: ":8083"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cte-postgres
+          property: connectionString
+      - key: KAFKA_BROKERS
+        value: redpanda:9092
+      - key: KAFKA_TLS_ENABLED
+        value: "false"
+
+  - type: web
+    name: cte-api
+    runtime: go
+    plan: starter
+    buildCommand: mkdir -p bin && cd services/api && go build -o ../../bin/api .
+    startCommand: ./bin/api
+    # CAVEAT: services/api serves self-signed HTTPS only (ListenAndServeTLS is
+    # hardcoded, /healthz exists but over TLS). Render's proxy expects plain
+    # HTTP backends — real traffic needs a small plain-HTTP mode added to the
+    # service (docs/RENDER.md open items). No healthCheckPath until then.
+    envVars:
+      - key: GO_VERSION
+        value: "1.22"
+      - key: PORT
+        value: "8443"
+      - key: LISTEN_ADDR
+        value: ":8443"
+      - key: APP_VERSION
+        value: render
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cte-postgres
+          property: connectionString
+      # S3 offloader placeholders — leave S3_BUCKET empty to keep it disabled.
+      - key: S3_BUCKET
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+
+  - type: web
+    name: cte-market-data
+    runtime: docker # Rust service: build from the repo Dockerfile
+    dockerfilePath: services/market-data/Dockerfile
+    dockerContext: services/market-data
+    plan: starter
+    # WebSocket fan-out (Render web services support WS). The code has no
+    # health route — Render falls back to a TCP port check.
+    envVars:
+      - key: PORT
+        value: "8081"
+      - key: LISTEN_ADDR
+        value: ":8081"
+      - key: KAFKA_BROKERS
+        value: redpanda:9092
+      - key: KAFKA_TLS_ENABLED
+        value: "false"
+      - key: RUST_LOG
+        value: info
+
+  # ---------------------------------------------------------------------
+  # Background workers (no public ingress)
+  # ---------------------------------------------------------------------
+
+  - type: worker
+    name: cte-matching-engine
+    runtime: docker
+    dockerfilePath: services/matching-engine/Dockerfile
+    dockerContext: services/matching-engine
+    plan: starter
+    numInstances: 1 # SINGLE-WRITER: the book lives in process memory and
+                    # matching must be strictly sequential per symbol
+                    # (services/matching-engine/README.md). Never scale >1
+                    # without symbol sharding.
+    envVars:
+      - key: KAFKA_BROKERS
+        value: redpanda:9092
+      - key: KAFKA_TLS_ENABLED
+        value: "false"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: cte-redis
+          property: connectionString
+      - key: RUST_LOG
+        value: info
+
+  - type: worker
+    name: cte-telemetry-verifier
+    runtime: docker
+    dockerfilePath: services/telemetry-verifier/Dockerfile
+    dockerContext: services/telemetry-verifier
+    plan: starter
+    # NOTE: as a worker its HTTP control plane (:8082 registration/heartbeat)
+    # has no public ingress — external seller node-agents cannot register
+    # until this is flipped to type: web (docs/RENDER.md).
+    envVars:
+      - key: LISTEN_ADDR
+        value: ":8082"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cte-postgres
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: cte-redis
+          property: connectionString
+      - key: KAFKA_BROKERS
+        value: redpanda:9092
+      - key: KAFKA_TLS_ENABLED
+        value: "false"
+      - key: REGISTRATION_TOKEN
+        sync: false # set in the Render dashboard — never commit a value
+      - key: RUST_LOG
+        value: info
+
+  - type: worker
+    name: cte-index-engine
+    runtime: python
+    plan: starter
+    buildCommand: cd services/index-engine && pip install -r requirements.txt
+    startCommand: cd services/index-engine && python -m index_engine.main
+    numInstances: 1 # singleton consumer: replicas would each see only a
+                    # partition subset and emit partial indices (k8s note)
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.6" # matches Dockerfile base (3.12-slim); kafka-python 2.3.2
+      - key: KAFKA_BROKERS
+        value: redpanda:9092
+      - key: KAFKA_TLS_ENABLED
+        value: "false"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: cte-redis
+          property: connectionString
+      - key: TRADES_TOPIC
+        value: trades
+      - key: INDEX_TOPIC
+        value: market-data
+      - key: WINDOW_SECONDS
+        value: "600"
+      - key: PUBLISH_INTERVAL_SECONDS
+        value: "15"
+
+  # ---------------------------------------------------------------------
+  # Private services (internal network only)
+  # ---------------------------------------------------------------------
+
+  - type: pserv
+    name: fix-gateway
+    runtime: docker
+    dockerfilePath: services/fix-gateway/Dockerfile
+    dockerContext: services/fix-gateway
+    plan: starter
+    # FIX 4.4 over TCP, reachable at fix-gateway:9878 from other services in
+    # the region. No public ingress (external FIX sessions are a later,
+    # deliberate step — see docs/RENDER.md).
+    envVars:
+      - key: FIX_LISTEN_ADDR
+        value: "0.0.0.0:9878"
+      - key: FIX_SENDER_COMP_ID
+        value: CTE
+
+  # Kafka stand-in: Render has no managed Kafka. Single-node redpanda with a
+  # persistent disk, plaintext on the private network only. RAM-hungry even
+  # trimmed down — bump the plan first if anything OOMs.
+  - type: pserv
+    name: redpanda
+    runtime: image
+    image:
+      url: docker.redpanda.com/redpandadata/redpanda:latest
+    plan: starter
+    # Same flags as infra/dev-stack/docker-compose.yml, with memory trimmed
+    # for the starter plan and the advertised address set to this service's
+    # private DNS name.
+    startCommand: >-
+      redpanda start --smp=1 --memory=400M --reserve-memory=0M --overprovisioned
+      --node-id=0 --check=false
+      --kafka-addr=PLAINTEXT://0.0.0.0:9092
+      --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    disk:
+      name: redpanda-data
+      mountPath: /var/lib/redpanda/data
+      sizeGB: 10
+
+  # ---------------------------------------------------------------------
+  # Infra
+  # ---------------------------------------------------------------------
+
+  - type: redis
+    name: cte-redis
+    plan: starter
+    ipAllowList: [] # private network only
+    maxmemoryPolicy: noeviction # matching-engine snapshots + SLA windows + index points must not be evicted
+
+databases:
+  - name: cte-postgres
+    plan: basic-256mb # smallest managed Postgres; free tier exists for trials
+    databaseName: exchange
+    user: exchange
