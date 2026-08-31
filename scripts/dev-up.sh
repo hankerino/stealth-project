@@ -79,7 +79,7 @@ docker exec -i cte-dev-postgres-1 psql -v ON_ERROR_STOP=1 -U exchange -d exchang
 echo "==> creating Kafka topics (idempotent)"
 # SettlementFailed events ride `sla-breach-events` (see libs/schemas/
 # SettlementFailed.avsc) — there is no separate settlement-failed topic.
-TOPICS="orders trades order-updates node-telemetry node-health-events sla-breach-events"
+TOPICS="orders trades order-updates node-telemetry node-health-events sla-breach-events market-data"
 if [ "$KAFKA_MODE" = redpanda ]; then
   for t in $TOPICS; do
     docker exec cte-dev-redpanda-1 rpk topic create "$t" >/dev/null 2>&1 || true

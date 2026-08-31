@@ -35,3 +35,7 @@ services/*/risk
 # dev-stack local state
 .env
 infra/dev-stack/.kafka-mode
+
+# Python
+__pycache__/
+*.pyc

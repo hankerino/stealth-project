@@ -369,6 +369,10 @@ mod schema_pin {
                 time_in_force: TimeInForce::Gtc,
                 price_cents: 500,
                 quantity: 10,
+                // Phase 2 fields (Avro defaults: "SPOT" / 0); pinned explicitly
+                // so the futures shape is covered too.
+                order_kind: "FUTURES".into(),
+                contract_id: 7,
                 occurred_at_unix_ms: 1,
             },
             "OrderPlaced",
