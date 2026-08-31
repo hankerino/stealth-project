@@ -7,7 +7,9 @@ CI runner → ECR → EKS (vpc-core, sealed) → edge ALB → public domain.
 - `GET /v1/status` — version + uptime
 - Listens on `:8443` with a self-signed cert generated at boot (the ALB does
   not validate target certs; east-west only inside the org perimeter).
-- `LISTEN_ADDR`, `APP_VERSION` env overrides.
+  Set `API_TLS_ENABLED=false` to serve plain HTTP instead — for platforms
+  whose proxy terminates TLS (e.g. Render).
+- `LISTEN_ADDR`, `APP_VERSION`, `API_TLS_ENABLED` env overrides.
 
 ## Local
 

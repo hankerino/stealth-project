@@ -93,19 +93,26 @@ func main() {
 		go off.Run(context.Background())
 	}
 
-	cert, err := selfSignedCert()
-	if err != nil {
-		log.Fatalf("tls cert: %v", err)
-	}
+	// TLS is on by default (self-signed cert — the AWS ALB doesn't validate
+	// target certs). API_TLS_ENABLED=false serves plain HTTP instead, for
+	// proxies that terminate TLS themselves (e.g. Render).
+	tlsEnabled := envOr("API_TLS_ENABLED", "true") != "false"
 
 	srv := &http.Server{
 		Addr:              addr,
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
-		TLSConfig: &tls.Config{
+	}
+
+	if tlsEnabled {
+		cert, err := selfSignedCert()
+		if err != nil {
+			log.Fatalf("tls cert: %v", err)
+		}
+		srv.TLSConfig = &tls.Config{
 			MinVersion:   tls.VersionTLS12,
 			Certificates: []tls.Certificate{cert},
-		},
+		}
 	}
 
 	go func() {
@@ -117,8 +124,15 @@ func main() {
 		_ = srv.Shutdown(ctx)
 	}()
 
-	log.Printf("trading-engine-api %s listening on %s", version(), addr)
-	if err := srv.ListenAndServeTLS("", ""); err != http.ErrServerClosed {
+	var err error
+	if tlsEnabled {
+		log.Printf("trading-engine-api %s listening on %s (self-signed HTTPS)", version(), addr)
+		err = srv.ListenAndServeTLS("", "")
+	} else {
+		log.Printf("trading-engine-api %s listening on %s (plain HTTP, API_TLS_ENABLED=false)", version(), addr)
+		err = srv.ListenAndServe()
+	}
+	if err != http.ErrServerClosed {
 		log.Fatalf("serve: %v", err)
 	}
 }
