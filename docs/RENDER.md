@@ -13,7 +13,7 @@ terminates TLS and proxies HTTP, which fits Render, not serverless).
 | `cte-catalog` (web, Go) | `services/catalog` | `/healthz`; runs migrations via `preDeployCommand` |
 | `cte-order` (web, Go) | `services/order` | REST public; gRPC `:9090` stays private-network only |
 | `cte-settlement` (web, Go) | `services/settlement` | `/healthz`; escrow + MTM |
-| `cte-api` (web, Go) | `services/api` | ⚠ serves **self-signed HTTPS** only — see caveats |
+| `cte-api` (web, Go) | `services/api` | `/healthz`; plain HTTP via `API_TLS_ENABLED=false` |
 | `cte-market-data` (web, docker) | `services/market-data/Dockerfile` | WebSocket fan-out; no health route (TCP check) |
 | `cte-matching-engine` (worker, docker) | `services/matching-engine/Dockerfile` | `numInstances: 1` — single-writer book, never scale without symbol sharding |
 | `cte-telemetry-verifier` (worker, docker) | `services/telemetry-verifier/Dockerfile` | SLA engine; HTTP control plane not public (see caveats) |
@@ -27,22 +27,28 @@ Everything is on the smallest plan — starting points per the cheap-path rule.
 All services must deploy into **one region**; private networking is
 region-local.
 
-## The one manual piece: redpanda
+## redpanda specifics
 
 The blueprint starts redpanda with a persistent disk and the same flags as
 `infra/dev-stack/docker-compose.yml` (memory trimmed for the starter plan).
-After its first deploy, create the topics once — mirroring `scripts/dev-up.sh`:
+
+**Kafka topics auto-create on first produce** — no manual `rpk topic create`
+needed. The startCommand writes `/etc/redpanda/.bootstrap.yaml` with
+`auto_create_topics_enabled: true` (a cluster property, default `false`;
+the bootstrap file is the documented way to seed cluster properties at first
+boot — `redpanda start` has no `--set` flag). If topics ever fail to
+auto-create, the fallback from the service's Shell is:
 
 ```bash
-# Render dashboard -> redpanda service -> Shell
+rpk config set auto_create_topics_enabled true
+# or create the dev-up.sh list explicitly:
 rpk topic create orders trades order-updates node-telemetry \
   node-health-events sla-breach-events market-data
 ```
 
-(Redpanda also auto-creates topics on first produce; explicit creation keeps
-the topic list deliberate.) If the dashboard shows a different internal
-hostname for the service, update both `--advertise-kafka-addr` in
-`render.yaml` and every `KAFKA_BROKERS` value to match.
+If the dashboard shows a different internal hostname for the service, update
+both `--advertise-kafka-addr` in `render.yaml` and every `KAFKA_BROKERS`
+value to match.
 
 ## Migrations
 
@@ -56,11 +62,10 @@ already in the environment.
 
 ## Caveats baked into the blueprint
 
-- **`cte-api` is HTTPS-only.** `services/api` hardcodes `ListenAndServeTLS`
-  with a self-signed cert (built for an ALB that doesn't validate target
-  certs). Render's proxy expects a plain-HTTP backend, so public traffic will
-  fail until the service grows a plain-HTTP mode behind proxy TLS
-  termination. The blueprint omits its health check until then.
+- **`cte-api` serves plain HTTP** (`API_TLS_ENABLED=false`) behind Render's
+  TLS-terminating proxy; its `/healthz` health check is enabled. The
+  service's default stays self-signed HTTPS (the AWS ALB path) — local dev
+  is unchanged.
 - **`cte-telemetry-verifier` is a worker.** Its registration/heartbeat API
   (`:8082`) then has no public ingress — seller node-agents on external
   hardware cannot register. Flip it to `type: web` with
@@ -99,6 +104,7 @@ already in the environment.
 2. Fill the prompted env vars: `REGISTRATION_TOKEN` (verifier), and the
    `S3_BUCKET` / `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` trio (leave
    the bucket blank to keep the offloader disabled).
-3. Apply; wait for `redpanda`, `cte-postgres`, `cte-redis` to go live, then
-   create the Kafka topics (above) and confirm the web services'
-   `/healthz` endpoints return 200.
+3. Apply; wait for `redpanda`, `cte-postgres`, `cte-redis` to go live.
+   Topics auto-create on first produce (see "redpanda specifics"); confirm
+   with `rpk topic list` from the redpanda Shell, then check the web
+   services' `/healthz` endpoints return 200 (all four, including cte-api).

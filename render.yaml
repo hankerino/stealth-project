@@ -94,10 +94,9 @@ services:
     plan: starter
     buildCommand: mkdir -p bin && cd services/api && go build -o ../../bin/api .
     startCommand: ./bin/api
-    # CAVEAT: services/api serves self-signed HTTPS only (ListenAndServeTLS is
-    # hardcoded, /healthz exists but over TLS). Render's proxy expects plain
-    # HTTP backends — real traffic needs a small plain-HTTP mode added to the
-    # service (docs/RENDER.md open items). No healthCheckPath until then.
+    healthCheckPath: /healthz
+    # API_TLS_ENABLED=false: plain HTTP behind Render's TLS-terminating proxy
+    # (the service's default is self-signed HTTPS for the AWS ALB path).
     envVars:
       - key: GO_VERSION
         value: "1.22"
@@ -105,6 +104,8 @@ services:
         value: "8443"
       - key: LISTEN_ADDR
         value: ":8443"
+      - key: API_TLS_ENABLED
+        value: "false"
       - key: APP_VERSION
         value: render
       - key: DATABASE_URL
@@ -256,11 +257,21 @@ services:
     # Same flags as infra/dev-stack/docker-compose.yml, with memory trimmed
     # for the starter plan and the advertised address set to this service's
     # private DNS name.
+    #
+    # Topic auto-creation: seeded via /etc/redpanda/.bootstrap.yaml (the
+    # documented way to set CLUSTER properties at first boot — redpanda's
+    # Helm chart does the same). auto_create_topics_enabled is a cluster
+    # property, default false (docs.redpanda.com cluster-properties
+    # reference); note there is NO `--set` flag on `redpanda start`/`rpk
+    # redpanda start` — do not "simplify" this to --set. Fallback if the
+    # file mechanism ever misbehaves: Shell into the service and run
+    # `rpk config set auto_create_topics_enabled true`.
     startCommand: >-
-      redpanda start --smp=1 --memory=400M --reserve-memory=0M --overprovisioned
+      sh -c "printf 'auto_create_topics_enabled: true\n' > /etc/redpanda/.bootstrap.yaml
+      && exec redpanda start --smp=1 --memory=400M --reserve-memory=0M --overprovisioned
       --node-id=0 --check=false
       --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+      --advertise-kafka-addr=PLAINTEXT://redpanda:9092"
     disk:
       name: redpanda-data
       mountPath: /var/lib/redpanda/data
