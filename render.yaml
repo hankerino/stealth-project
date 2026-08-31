@@ -252,7 +252,10 @@ services:
     name: redpanda
     runtime: image
     image:
-      url: docker.redpanda.com/redpandadata/redpanda:latest
+      # Docker Hub — Render could not fetch from docker.redpanda.com.
+      # Pinned (not latest) for reproducible deploys; v26.2.2 exists on
+      # docker.io (verified 2026-08-31).
+      url: docker.io/redpandadata/redpanda:v26.2.2
     plan: starter
     # Same flags as infra/dev-stack/docker-compose.yml, with memory trimmed
     # for the starter plan and the advertised address set to this service's
