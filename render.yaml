@@ -264,18 +264,11 @@ services:
     # starter plan, advertised address = this service's private DNS name.
     #
     # Launch via the image's own /entrypoint.sh (proven launcher — it execs
-    # /usr/bin/rpk). NO sh -c wrapper: nested-shell quoting mangled the
-    # command and produced exit 127 three times. Args land in rpk as
-    # `rpk redpanda start <flags>` via the script's else branch.
-    dockerCommand: /entrypoint.sh redpanda start --smp=1 --memory=400M
-      --reserve-memory=0M --overprovisioned --check=false
-      --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      --advertise-kafka-addr=PLAINTEXT://redpanda-u6mq:9092
-    # Topics created once after the first successful deploy (broker is up by
-    # then). Fallback: Render Shell → same rpk command.
-    initialDeployHook: /usr/bin/rpk topic create orders trades order-updates
-      node-telemetry node-health-events sla-breach-events market-data
-      --brokers localhost:9092
+    # /usr/bin/rpk), wrapped in bash (present in the image) so the broker
+    # gets auto_create_topics_enabled at startup via .bootstrap.yaml — this
+    # is what lets services create their own topics on produce. NOTE: dash
+    # (`sh -c`) mangles this line (exit 127 x3); bash works.
+    dockerCommand: bash -c 'printf "auto_create_topics_enabled: true\n" > /etc/redpanda/.bootstrap.yaml && exec /entrypoint.sh redpanda start --smp=1 --memory=400M --reserve-memory=0M --overprovisioned --check=false --kafka-addr=PLAINTEXT://0.0.0.0:9092 --advertise-kafka-addr=PLAINTEXT://redpanda-u6mq:9092'
     disk:
       name: redpanda-data
       mountPath: /var/lib/redpanda/data
