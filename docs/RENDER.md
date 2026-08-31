@@ -11,7 +11,7 @@ terminates TLS and proxies HTTP, which fits Render, not serverless).
 | Render resource | From the repo | Notes |
 |---|---|---|
 | `cte-catalog` (web, Go) | `services/catalog` | `/healthz`; runs migrations via `preDeployCommand` |
-| `cte-order` (web, Go) | `services/order` | REST public; gRPC `:9090` stays private-network only |
+| `cte-order` (web, docker) | `services/order/Dockerfile` | docker build generates the gitignored risk/v1 gRPC stubs (needs protoc — unavailable to Render's native Go runtime); REST public, gRPC `:9090` private-network only |
 | `cte-settlement` (web, Go) | `services/settlement` | `/healthz`; escrow + MTM |
 | `cte-api` (web, Go) | `services/api` | `/healthz`; plain HTTP via `API_TLS_ENABLED=false` |
 | `cte-market-data` (web, docker) | `services/market-data/Dockerfile` | WebSocket fan-out; no health route (TCP check) |
@@ -33,11 +33,12 @@ The blueprint starts redpanda with a persistent disk and the same flags as
 `infra/dev-stack/docker-compose.yml` (memory trimmed for the starter plan).
 
 **Kafka topics auto-create on first produce** — no manual `rpk topic create`
-needed. The startCommand writes `/etc/redpanda/.bootstrap.yaml` with
-`auto_create_topics_enabled: true` (a cluster property, default `false`;
-the bootstrap file is the documented way to seed cluster properties at first
-boot — `redpanda start` has no `--set` flag). If topics ever fail to
-auto-create, the fallback from the service's Shell is:
+needed. The `dockerCommand` (Render ignores `startCommand` on
+`runtime: image`) writes `/etc/redpanda/.bootstrap.yaml` with
+`auto_create_topics_enabled: true` and launches via `/usr/bin/rpk redpanda
+start` — the v26 image has no `redpanda` binary on PATH; `rpk` is its
+launcher. If topics ever fail to auto-create, the fallback from the
+service's Shell is:
 
 ```bash
 rpk config set auto_create_topics_enabled true
@@ -52,12 +53,13 @@ value to match.
 
 ## Migrations
 
-`cte-catalog`'s `preDeployCommand` installs `postgresql-client` and runs
-`scripts/render-migrate.sh`, which applies every `services/*/db/migrations/*.up.sql`
-(catalog, order, settlement, risk), the catalog seed, and the telemetry DDL —
-all idempotent, so running per deploy is safe. Manual fallback (e.g. before
-the first catalog deploy, or to run once by hand): open a **Shell** on any
-service with the repo checkout and run the same script; `DATABASE_URL` is
+`cte-catalog`'s `preDeployCommand` runs `cd scripts/migrate && go run .` — a
+pure-Go runner (`scripts/migrate/main.go`, database/sql + lib/pq, no psql,
+no apt: Render's native Go runtime denies root). It applies every
+`services/*/db/migrations/*.up.sql` (catalog, order, settlement, risk), the
+catalog seed, and the telemetry DDL — all idempotent, so running per deploy
+is safe. Manual fallback (e.g. to run once by hand): open a **Shell** on any
+service with the repo checkout and run the same command; `DATABASE_URL` is
 already in the environment.
 
 ## Caveats baked into the blueprint

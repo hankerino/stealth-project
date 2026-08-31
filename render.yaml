@@ -26,8 +26,10 @@ services:
     startCommand: ./bin/catalog
     healthCheckPath: /healthz
     # Migrations run here (idempotent) before every catalog deploy — the
-    # cheapest stand-in for a one-off job. Manual fallback in docs/RENDER.md.
-    preDeployCommand: apt-get update -qq && apt-get install -y -qq postgresql-client && ./scripts/render-migrate.sh
+    # cheapest stand-in for a one-off job. Pure-Go runner (scripts/migrate):
+    # Render's native Go runtime denies root, so no apt/psql anywhere.
+    # Manual fallback in docs/RENDER.md.
+    preDeployCommand: cd scripts/migrate && go run .
     envVars:
       - key: GO_VERSION
         value: "1.22"
@@ -42,14 +44,15 @@ services:
 
   - type: web
     name: cte-order
-    runtime: go
+    runtime: docker # NOT go: the risk/v1 gRPC stubs are gitignored and
+                    # generated at image build by services/order/Dockerfile
+                    # (needs protoc; Render's native Go runtime has neither
+                    # protoc nor apt). Repo-root build context required.
+    dockerfilePath: services/order/Dockerfile
+    dockerContext: .
     plan: starter
-    buildCommand: mkdir -p bin && cd services/order && go build -o ../../bin/order .
-    startCommand: ./bin/order
     healthCheckPath: /healthz
     envVars:
-      - key: GO_VERSION
-        value: "1.22"
       - key: PORT
         value: "8090"
       - key: LISTEN_ADDR
@@ -262,22 +265,25 @@ services:
     # private DNS name.
     #
     # Topic auto-creation: seeded via /etc/redpanda/.bootstrap.yaml (the
-    # documented way to set CLUSTER properties at first boot — redpanda's
-    # Helm chart does the same). auto_create_topics_enabled is a cluster
-    # property, default false (docs.redpanda.com cluster-properties
-    # reference); note there is NO `--set` flag on `redpanda start`/`rpk
-    # redpanda start` — do not "simplify" this to --set. Fallback if the
-    # file mechanism ever misbehaves: Shell into the service and run
+    # documented way to set CLUSTER properties at first boot — the broker
+    # reads it regardless of launcher). auto_create_topics_enabled is a
+    # cluster property, default false (docs.redpanda.com cluster-properties
+    # reference). Fallback: Shell into the service and run
     # `rpk config set auto_create_topics_enabled true`.
     # Docker/image services need `dockerCommand` (Render ignores
     # `startCommand` on runtime: image — the first deploy fell back to the
     # image's dev-mode default entrypoint and redpanda segfaulted, exit 139).
-    # Fallback if the file mechanism ever misbehaves: Shell into the service
-    # and run `rpk config set auto_create_topics_enabled true`.
+    # Launcher: the v26 image has NO redpanda binary on PATH (exit 127) —
+    # its default entrypoint execs `/usr/bin/rpk redpanda start
+    # --overprovisioned` (first deploy log), so launch through /usr/bin/rpk.
+    # Flags kept minimal: rpk redpanda start has no --node-id (and broker
+    # IDs must not be set manually — broker-properties doc); --overprovisioned
+    # is proven by the image default; --check=false/--kafka-addr/
+    # --advertise-kafka-addr are in the rpk flag reference.
     dockerCommand: >-
       sh -c "printf 'auto_create_topics_enabled: true\n' > /etc/redpanda/.bootstrap.yaml
-      && exec redpanda start --smp=1 --memory=400M --reserve-memory=0M --overprovisioned
-      --node-id=0 --check=false
+      && exec /usr/bin/rpk redpanda start --smp=1 --memory=400M --reserve-memory=0M
+      --overprovisioned --check=false
       --kafka-addr=PLAINTEXT://0.0.0.0:9092
       --advertise-kafka-addr=PLAINTEXT://redpanda:9092"
     disk:

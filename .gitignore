@@ -39,3 +39,6 @@ infra/dev-stack/.kafka-mode
 # Python
 __pycache__/
 *.pyc
+
+# migrate runner binary
+scripts/migrate/migrate
