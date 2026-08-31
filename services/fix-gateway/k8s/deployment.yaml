@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fix-gateway
+  namespace: exchange
+  labels:
+    app: fix-gateway
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: fix-gateway
+  template:
+    metadata:
+      labels:
+        app: fix-gateway
+    spec:
+      containers:
+        - name: fix-gateway
+          image: REPLACE_WITH_ECR_REGISTRY/fix-gateway:bootstrap
+          ports:
+            - name: fix
+              containerPort: 9878
+          env:
+            - name: FIX_LISTEN_ADDR
+              value: "0.0.0.0:9878"
+            - name: FIX_SENDER_COMP_ID
+              value: "CTE"
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi

@@ -1,0 +1,16 @@
+{
+  "type": "record",
+  "name": "ComputeIndex",
+  "namespace": "cte.events",
+  "doc": "Published by the index-engine to the `market-data` topic: a volume-weighted price benchmark for compute. Kafka key: index_key (gpu_type or COMPOSITE).",
+  "fields": [
+    { "name": "event_id", "type": "string" },
+    { "name": "scope", "type": { "type": "enum", "name": "IndexScope", "symbols": ["GPU_TYPE", "COMPOSITE"] } },
+    { "name": "gpu_type", "type": ["null", "string"], "default": null, "doc": "set when scope=GPU_TYPE; null for COMPOSITE" },
+    { "name": "vwap_cents", "type": "long", "doc": "volume-weighted average price over the window" },
+    { "name": "volume", "type": "long", "doc": "total GPU-hours traded in the window" },
+    { "name": "trade_count", "type": "long" },
+    { "name": "window_seconds", "type": "int" },
+    { "name": "computed_at_unix_ms", "type": "long" }
+  ]
+}

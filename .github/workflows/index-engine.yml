@@ -1,0 +1,29 @@
+name: index-engine
+
+on:
+  push:
+    paths:
+      - "services/index-engine/**"
+      - ".github/workflows/index-engine.yml"
+  pull_request:
+    paths:
+      - "services/index-engine/**"
+      - ".github/workflows/index-engine.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        working-directory: services/index-engine
+        run: pip install -r requirements-dev.txt
+      - name: Compile + test
+        working-directory: services/index-engine
+        run: |
+          python -m compileall index_engine
+          python -m pytest -q

@@ -1,0 +1,58 @@
+# index-engine deployment.
+#
+# IMPORTANT: replicas MUST be 1. The engine computes a global VWAP across all
+# trades; multiple replicas in one consumer group would each see only a subset
+# of partitions and produce partial indices.
+#
+#   kubectl -n exchange create configmap index-engine-config \
+#     --from-literal=KAFKA_BROKERS=b-1.msk.amazonaws.com:9094 \
+#     --from-literal=KAFKA_TLS_ENABLED=true \
+#     --from-literal=REDIS_URL=redis://redis:6379/0 \
+#     --from-literal=WINDOW_SECONDS=600 --from-literal=PUBLISH_INTERVAL_SECONDS=15
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: index-engine
+  namespace: exchange
+  labels:
+    app: index-engine
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: index-engine
+  template:
+    metadata:
+      labels:
+        app: index-engine
+    spec:
+      containers:
+        - name: index-engine
+          image: REPLACE_WITH_ECR_REGISTRY/index-engine:bootstrap
+          envFrom:
+            - configMapRef:
+                name: index-engine-config
+          env:
+            - name: KAFKA_CLIENT_CERT
+              value: /mnt/kafka-mtls/tls.crt
+            - name: KAFKA_CLIENT_KEY
+              value: /mnt/kafka-mtls/tls.key
+            - name: KAFKA_CA_CERT
+              value: /mnt/kafka-mtls/ca.crt
+          volumeMounts:
+            - name: kafka-mtls-certs
+              mountPath: /mnt/kafka-mtls
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+      volumes:
+        - name: kafka-mtls-certs
+          secret:
+            secretName: kafka-mtls-certs
