@@ -269,7 +269,12 @@ services:
     # redpanda start` — do not "simplify" this to --set. Fallback if the
     # file mechanism ever misbehaves: Shell into the service and run
     # `rpk config set auto_create_topics_enabled true`.
-    startCommand: >-
+    # Docker/image services need `dockerCommand` (Render ignores
+    # `startCommand` on runtime: image — the first deploy fell back to the
+    # image's dev-mode default entrypoint and redpanda segfaulted, exit 139).
+    # Fallback if the file mechanism ever misbehaves: Shell into the service
+    # and run `rpk config set auto_create_topics_enabled true`.
+    dockerCommand: >-
       sh -c "printf 'auto_create_topics_enabled: true\n' > /etc/redpanda/.bootstrap.yaml
       && exec redpanda start --smp=1 --memory=400M --reserve-memory=0M --overprovisioned
       --node-id=0 --check=false
