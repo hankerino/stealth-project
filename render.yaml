@@ -260,32 +260,22 @@ services:
       # docker.io (verified 2026-08-31).
       url: docker.io/redpandadata/redpanda:v26.2.2
     plan: starter
-    # Same flags as infra/dev-stack/docker-compose.yml, with memory trimmed
-    # for the starter plan and the advertised address set to this service's
-    # private DNS name.
+    # Flags as in infra/dev-stack/docker-compose.yml, memory trimmed for the
+    # starter plan, advertised address = this service's private DNS name.
     #
-    # Topic auto-creation: seeded via /etc/redpanda/.bootstrap.yaml (the
-    # documented way to set CLUSTER properties at first boot — the broker
-    # reads it regardless of launcher). auto_create_topics_enabled is a
-    # cluster property, default false (docs.redpanda.com cluster-properties
-    # reference). Fallback: Shell into the service and run
-    # `rpk config set auto_create_topics_enabled true`.
-    # Docker/image services need `dockerCommand` (Render ignores
-    # `startCommand` on runtime: image — the first deploy fell back to the
-    # image's dev-mode default entrypoint and redpanda segfaulted, exit 139).
-    # Launcher: the v26 image has NO redpanda binary on PATH (exit 127) —
-    # its default entrypoint execs `/usr/bin/rpk redpanda start
-    # --overprovisioned` (first deploy log), so launch through /usr/bin/rpk.
-    # Flags kept minimal: rpk redpanda start has no --node-id (and broker
-    # IDs must not be set manually — broker-properties doc); --overprovisioned
-    # is proven by the image default; --check=false/--kafka-addr/
-    # --advertise-kafka-addr are in the rpk flag reference.
-    dockerCommand: >-
-      sh -c "printf 'auto_create_topics_enabled: true\n' > /etc/redpanda/.bootstrap.yaml
-      && exec /opt/redpanda/bin/redpanda redpanda --smp=1 --memory=400M --reserve-memory=0M
-      --overprovisioned --check=false
+    # Launch via the image's own /entrypoint.sh (proven launcher — it execs
+    # /usr/bin/rpk). NO sh -c wrapper: nested-shell quoting mangled the
+    # command and produced exit 127 three times. Args land in rpk as
+    # `rpk redpanda start <flags>` via the script's else branch.
+    dockerCommand: /entrypoint.sh redpanda start --smp=1 --memory=400M
+      --reserve-memory=0M --overprovisioned --check=false
       --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      --advertise-kafka-addr=PLAINTEXT://redpanda:9092"
+      --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+    # Topics created once after the first successful deploy (broker is up by
+    # then). Fallback: Render Shell → same rpk command.
+    initialDeployHook: /usr/bin/rpk topic create orders trades order-updates
+      node-telemetry node-health-events sla-breach-events market-data
+      --brokers localhost:9092
     disk:
       name: redpanda-data
       mountPath: /var/lib/redpanda/data
