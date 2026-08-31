@@ -24,7 +24,16 @@ KAFKA_DATA="/tmp/kraft-combined-logs"
 export KAFKA_HEAP_OPTS="-Xmx512M -Xms512M"
 
 KAFKA_MODE=redpanda
-if ! docker compose up -d --wait; then
+# Fast path: a previous run already fell back to KRaft and it is answering —
+# don't pay minutes of Docker Hub rate-limit retries again. FORCE_REDPANDA=1
+# retries the redpanda pull (e.g. after the rate-limit window resets).
+if [ -z "${FORCE_REDPANDA:-}" ] \
+   && [ -f "$MODE_FILE" ] && [ "$(cat "$MODE_FILE")" = kraft ] \
+   && (exec 3<>/dev/tcp/127.0.0.1/9092) 2>/dev/null; then
+  echo "==> kraft fallback kafka already running on :9092 (FORCE_REDPANDA=1 to retry redpanda)"
+  KAFKA_MODE=kraft
+  docker compose up -d --wait postgres redis
+elif ! docker compose up -d --wait; then
   echo "==> compose up failed; trying explicit redpanda pull (Docker Hub rate limit?)"
   if docker pull docker.redpanda.com/redpandadata/redpanda:latest; then
     docker compose up -d --wait
