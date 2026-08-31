@@ -25,8 +25,13 @@ services/*/order
 services/*/settlement
 services/*/catalog
 services/*/api
+services/*/node-agent
 node_modules/
 
 # Generated proto stubs (produced at build time by scripts/gen-proto.sh)
 libs/proto/gen/risk/
 services/*/risk
+
+# dev-stack local state
+.env
+infra/dev-stack/.kafka-mode

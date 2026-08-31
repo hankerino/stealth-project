@@ -16,9 +16,9 @@ services:
       - "5432:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
-      - ../services/catalog/db/migrations:/migrations/catalog:ro
-      - ../services/order/db/migrations:/migrations/order:ro
-      - ../services/settlement/db/migrations:/migrations/settlement:ro
+      - ../../services/catalog/db/migrations:/migrations/catalog:ro
+      - ../../services/order/db/migrations:/migrations/order:ro
+      - ../../services/settlement/db/migrations:/migrations/settlement:ro
       - ./init/apply-migrations.sh:/docker-entrypoint-initdb.d/90-apply-migrations.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]
@@ -54,12 +54,15 @@ services:
       - --node-id=0
       - --check=false
       - --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      - --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+      # Services run on the host in the cheap dev path, so the advertised
+      # address must resolve from the host, not from inside the container net.
+      - --advertise-kafka-addr=PLAINTEXT://localhost:9092
     ports:
       - "9092:9092"
       - "9644:9644"   # admin API
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9644/v1/status/ready || exit 1"]
+      # rpk ships in the image; curl does not.
+      test: ["CMD-SHELL", "rpk cluster health | grep -q 'Healthy:.*true' || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 30
