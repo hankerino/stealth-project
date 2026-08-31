@@ -64,7 +64,7 @@ services:
           name: cte-postgres
           property: connectionString
       - key: KAFKA_BROKERS
-        value: redpanda:9092
+        value: redpanda-u6mq:9092
       - key: KAFKA_TLS_ENABLED
         value: "false"
 
@@ -87,7 +87,7 @@ services:
           name: cte-postgres
           property: connectionString
       - key: KAFKA_BROKERS
-        value: redpanda:9092
+        value: redpanda-u6mq:9092
       - key: KAFKA_TLS_ENABLED
         value: "false"
 
@@ -137,7 +137,7 @@ services:
       - key: LISTEN_ADDR
         value: ":8081"
       - key: KAFKA_BROKERS
-        value: redpanda:9092
+        value: redpanda-u6mq:9092
       - key: KAFKA_TLS_ENABLED
         value: "false"
       - key: RUST_LOG
@@ -159,7 +159,7 @@ services:
                     # without symbol sharding.
     envVars:
       - key: KAFKA_BROKERS
-        value: redpanda:9092
+        value: redpanda-u6mq:9092
       - key: KAFKA_TLS_ENABLED
         value: "false"
       - key: REDIS_URL
@@ -192,7 +192,7 @@ services:
           name: cte-redis
           property: connectionString
       - key: KAFKA_BROKERS
-        value: redpanda:9092
+        value: redpanda-u6mq:9092
       - key: KAFKA_TLS_ENABLED
         value: "false"
       - key: REGISTRATION_TOKEN
@@ -212,7 +212,7 @@ services:
       - key: PYTHON_VERSION
         value: "3.12.6" # matches Dockerfile base (3.12-slim); kafka-python 2.3.2
       - key: KAFKA_BROKERS
-        value: redpanda:9092
+        value: redpanda-u6mq:9092
       - key: KAFKA_TLS_ENABLED
         value: "false"
       - key: REDIS_URL
@@ -270,7 +270,7 @@ services:
     dockerCommand: /entrypoint.sh redpanda start --smp=1 --memory=400M
       --reserve-memory=0M --overprovisioned --check=false
       --kafka-addr=PLAINTEXT://0.0.0.0:9092
-      --advertise-kafka-addr=PLAINTEXT://redpanda:9092
+      --advertise-kafka-addr=PLAINTEXT://redpanda-u6mq:9092
     # Topics created once after the first successful deploy (broker is up by
     # then). Fallback: Render Shell → same rpk command.
     initialDeployHook: /usr/bin/rpk topic create orders trades order-updates
