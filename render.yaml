@@ -282,7 +282,7 @@ services:
     # --advertise-kafka-addr are in the rpk flag reference.
     dockerCommand: >-
       sh -c "printf 'auto_create_topics_enabled: true\n' > /etc/redpanda/.bootstrap.yaml
-      && exec /usr/bin/rpk redpanda start --smp=1 --memory=400M --reserve-memory=0M
+      && exec /opt/redpanda/bin/redpanda redpanda --smp=1 --memory=400M --reserve-memory=0M
       --overprovisioned --check=false
       --kafka-addr=PLAINTEXT://0.0.0.0:9092
       --advertise-kafka-addr=PLAINTEXT://redpanda:9092"
