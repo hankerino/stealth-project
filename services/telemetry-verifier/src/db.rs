@@ -31,11 +31,12 @@ pub async fn connect(database_url: &str) -> Result<PgPool> {
 pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
     // seller_nodes is owned by the (formal, elsewhere) migration; created here
     // only so a fresh cluster can register nodes. public_key stores the raw
-    // 32-byte Ed25519 key base64-encoded.
+    // 32-byte Ed25519 key base64-encoded. Column types match the dev-stack
+    // init script and ARCHITECTURE.md §4 (seller_id is uuid, not text).
     sqlx::query(
         r#"CREATE TABLE IF NOT EXISTS seller_nodes (
                node_id     uuid PRIMARY KEY,
-               seller_id   text NOT NULL,
+               seller_id   uuid NOT NULL,
                public_key  text NOT NULL,
                created_at  timestamptz NOT NULL DEFAULT now()
            )"#,

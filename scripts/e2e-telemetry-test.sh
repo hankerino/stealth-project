@@ -25,7 +25,9 @@ REDIS_URL_LOCAL="redis://127.0.0.1:6379"
 REDIS_CONTAINER="${REDIS_CONTAINER:-tv-e2e-redis}"
 WORKDIR_E2E="/tmp/tv-e2e"
 CONTRACT_ID="11111111-2222-3333-4444-555555555555"
-SELLER_ID="seller-e2e"
+# seller_nodes.seller_id is uuid in the real DB (in-memory registry in
+# SKIP_DB mode accepts any string) — keep it a uuid so both modes work.
+SELLER_ID="11111111-2222-3333-4444-555555555556"
 SLA_DOWNTIME_SECS="${SLA_DOWNTIME_SECS:-15}"
 REG_TOKEN="e2e-token"
 VERIFIER_PID=""

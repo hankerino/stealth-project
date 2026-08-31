@@ -86,7 +86,9 @@ impl PgKeys {
 
     async fn register(&self, seller_id: &str, public_key: &[u8; 32]) -> Result<String> {
         let node_id = uuid::Uuid::new_v4().to_string();
-        sqlx::query("INSERT INTO seller_nodes (node_id, seller_id, public_key) VALUES ($1::uuid, $2, $3)")
+        // seller_nodes.seller_id is uuid (formal migration + init script), so
+        // the TEXT bind must be cast explicitly — sqlx sends typed params.
+        sqlx::query("INSERT INTO seller_nodes (node_id, seller_id, public_key) VALUES ($1::uuid, $2::uuid, $3)")
             .bind(&node_id)
             .bind(seller_id)
             .bind(B64.encode(public_key))
