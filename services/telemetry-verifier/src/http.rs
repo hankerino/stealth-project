@@ -48,7 +48,6 @@ async fn metrics(State(state): State<Arc<AppState>>) -> String {
 
 #[derive(Debug, Deserialize)]
 pub struct GpuDescriptor {
-    #[allow(dead_code)]
     pub model: Option<String>,
     #[allow(dead_code)]
     pub uuid: Option<String>,
@@ -92,7 +91,7 @@ async fn register(
         Ok(k) => k,
         Err(e) => return reject(&format!("invalid public_key_pem: {e}"), StatusCode::BAD_REQUEST),
     };
-    match state.registry.register(&req.seller_id, &public_key).await {
+    match state.registry.register(&req.seller_id, &public_key, req.gpus.first().and_then(|g| g.model.as_deref())).await {
         Ok(node_id) => (
             StatusCode::OK,
             Json(RegisterNodeResponse { node_id, accepted: true, reject_reason: None }),

@@ -1,0 +1,18 @@
+{
+  "type": "record",
+  "name": "JobEvent",
+  "namespace": "cte.events",
+  "doc": "Workload-job lifecycle events on the `node-jobs` topic. Emitted by the settlement service: ASSIGNED when a trade creates the job (escrow held), STARTED/COMPLETED/FAILED when the executing node reports via the job control plane. Kafka key: node_id.",
+  "fields": [
+    { "name": "event_id", "type": "string", "doc": "UUIDv4, idempotency key" },
+    { "name": "job_id", "type": "string" },
+    { "name": "trade_id", "type": "string", "doc": "trade_ledger.trade_id this job fulfills" },
+    { "name": "node_id", "type": "string", "doc": "seller_nodes.node_id the job is assigned to" },
+    { "name": "symbol", "type": "string", "doc": "<GPU_TYPE>:<REGION>, e.g. H100:us-east-1" },
+    { "name": "buyer_id", "type": "string" },
+    { "name": "seller_id", "type": "string" },
+    { "name": "status", "type": { "type": "enum", "name": "JobStatus", "symbols": ["ASSIGNED", "STARTED", "COMPLETED", "FAILED"] } },
+    { "name": "reason", "type": ["null", "string"], "default": null, "doc": "e.g. NO_CAPACITY, EXECUTION_ERROR; null otherwise" },
+    { "name": "occurred_at_unix_ms", "type": "long" }
+  ]
+}

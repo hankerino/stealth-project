@@ -30,24 +30,15 @@ var migrationDirs = []string{
 	"services/order/db/migrations",
 	"services/settlement/db/migrations",
 	"services/risk/db/migrations",
+	"services/telemetry-verifier/db/migrations",
 }
 
 const seedFile = "services/catalog/db/seed.sql"
 
-// telemetryDDL is identical to infra/dev-stack/init/apply-migrations.sh
-// (the telemetry-verifier also creates seller_nodes + seller_node_metrics
-// itself at startup).
+// telemetryDDL: the tables NOT owned by a formal migration. seller_nodes is
+// owned by services/telemetry-verifier/db/migrations (applied above); the
+// verifier also creates seller_node_metrics itself at startup.
 const telemetryDDL = `
-CREATE TABLE IF NOT EXISTS seller_nodes (
-  node_id uuid PRIMARY KEY,
-  seller_id uuid NOT NULL,
-  public_key text NOT NULL,
-  gpu_type_id uuid,
-  region_id uuid,
-  status varchar(32) NOT NULL DEFAULT 'active',
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
 CREATE TABLE IF NOT EXISTS contract_sla_logs (
   contract_id uuid NOT NULL,
   node_id uuid NOT NULL,

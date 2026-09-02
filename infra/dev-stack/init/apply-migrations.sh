@@ -30,18 +30,19 @@ if [ -d /migrations/settlement ]; then
   done
 fi
 
-# telemetry-verifier tables (created idempotently by the service too)
-psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
-CREATE TABLE IF NOT EXISTS seller_nodes (
-  node_id uuid PRIMARY KEY,
-  seller_id uuid NOT NULL,
-  public_key text NOT NULL,
-  gpu_type_id uuid,
-  region_id uuid,
-  status varchar(32) NOT NULL DEFAULT 'active',
-  created_at timestamptz NOT NULL DEFAULT now()
-);
+# telemetry-verifier migrations (formal owner of the seller_nodes shape)
+if [ -d /migrations/telemetry-verifier ]; then
+  echo "==> applying telemetry-verifier migrations"
+  for f in /migrations/telemetry-verifier/*.up.sql; do
+    [ -e "$f" ] || continue
+    echo "  -> $f"
+    psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" -f "$f"
+  done
+fi
 
+# remaining telemetry tables (seller_nodes is owned by the formal migration
+# above; the verifier also creates seller_node_metrics itself at startup)
+psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_DB" <<'SQL'
 CREATE TABLE IF NOT EXISTS contract_sla_logs (
   contract_id uuid NOT NULL,
   node_id uuid NOT NULL,

@@ -19,6 +19,7 @@ services:
       - ../../services/catalog/db/migrations:/migrations/catalog:ro
       - ../../services/order/db/migrations:/migrations/order:ro
       - ../../services/settlement/db/migrations:/migrations/settlement:ro
+      - ../../services/telemetry-verifier/db/migrations:/migrations/telemetry-verifier:ro
       - ./init/apply-migrations.sh:/docker-entrypoint-initdb.d/90-apply-migrations.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U exchange -d exchange"]

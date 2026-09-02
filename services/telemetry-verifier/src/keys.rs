@@ -39,10 +39,12 @@ impl KeyRegistry {
     }
 
     /// Register a node (HTTP shim for the gRPC RegisterNode RPC).
+    /// `gpu_model` (first descriptor, e.g. "H100" or "FakeGPU-H100") is
+    /// resolved to gpu_types.id so the node is schedulable capacity.
     /// Returns the assigned node_id.
-    pub async fn register(&self, seller_id: &str, public_key: &[u8; 32]) -> Result<String> {
+    pub async fn register(&self, seller_id: &str, public_key: &[u8; 32], gpu_model: Option<&str>) -> Result<String> {
         match self {
-            KeyRegistry::Postgres(pg) => pg.register(seller_id, public_key).await,
+            KeyRegistry::Postgres(pg) => pg.register(seller_id, public_key, gpu_model).await,
             KeyRegistry::Memory(mem) => Ok(mem.register(seller_id, public_key)),
         }
     }
@@ -84,14 +86,29 @@ impl PgKeys {
         Ok(key)
     }
 
-    async fn register(&self, seller_id: &str, public_key: &[u8; 32]) -> Result<String> {
+    async fn register(&self, seller_id: &str, public_key: &[u8; 32], gpu_model: Option<&str>) -> Result<String> {
         let node_id = uuid::Uuid::new_v4().to_string();
         // seller_nodes.seller_id is uuid (formal migration + init script), so
         // the TEXT bind must be cast explicitly — sqlx sends typed params.
-        sqlx::query("INSERT INTO seller_nodes (node_id, seller_id, public_key) VALUES ($1::uuid, $2::uuid, $3)")
+        // Resolve the GPU model to gpu_types.id for capacity/scheduling;
+        // tolerant match: exact name, else catalog name contained in the
+        // agent-reported model string ("FakeGPU-H100" -> "H100"). Unknown
+        // models register with NULL gpu_type_id (never schedulable).
+        let gpu_type_id: Option<i64> = match gpu_model {
+            Some(model) => sqlx::query_scalar(
+                "SELECT id FROM gpu_types WHERE name = $1 OR $1 ILIKE '%' || name || '%' ORDER BY length(name) DESC LIMIT 1",
+            )
+            .bind(model)
+            .fetch_optional(&self.pool)
+            .await
+            .context("resolve gpu_types")?,
+            None => None,
+        };
+        sqlx::query("INSERT INTO seller_nodes (node_id, seller_id, public_key, gpu_type_id) VALUES ($1::uuid, $2::uuid, $3, $4)")
             .bind(&node_id)
             .bind(seller_id)
             .bind(B64.encode(public_key))
+            .bind(gpu_type_id)
             .execute(&self.pool)
             .await
             .context("insert seller_nodes")?;

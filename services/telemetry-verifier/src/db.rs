@@ -29,15 +29,19 @@ pub async fn connect(database_url: &str) -> Result<PgPool> {
 }
 
 pub async fn ensure_schema(pool: &PgPool) -> Result<()> {
-    // seller_nodes is owned by the (formal, elsewhere) migration; created here
-    // only so a fresh cluster can register nodes. public_key stores the raw
-    // 32-byte Ed25519 key base64-encoded. Column types match the dev-stack
-    // init script and ARCHITECTURE.md §4 (seller_id is uuid, not text).
+    // seller_nodes is owned by the formal migration
+    // (services/telemetry-verifier/db/migrations/0001_seller_nodes.up.sql);
+    // created here only so a fresh cluster can register nodes before
+    // migrations run. Column types match that migration: seller_id uuid,
+    // gpu_type_id BIGINT (-> gpu_types.id), region_id TEXT (-> regions.code).
     sqlx::query(
         r#"CREATE TABLE IF NOT EXISTS seller_nodes (
                node_id     uuid PRIMARY KEY,
                seller_id   uuid NOT NULL,
                public_key  text NOT NULL,
+               gpu_type_id bigint,
+               region_id   text,
+               status      varchar(32) NOT NULL DEFAULT 'active',
                created_at  timestamptz NOT NULL DEFAULT now()
            )"#,
     )
