@@ -34,6 +34,10 @@ curl localhost:9100/metrics
 | `ACTIVE_CONTRACT_ID` | — | Set into `payload.active_contract_id`; JSON `null` when unset. |
 | `AGENT_FAKE_GPU` | — | `1` forces the deterministic fake collector (also used automatically when `nvidia-smi` is absent). Used by tests and the e2e script. |
 | `WG_CONFIG` | — | WireGuard config path (e.g. `/etc/wireguard/exchange0.conf`). Empty disables WireGuard management. |
+| `JOBS_URL` | — | Settlement base URL for the workload executor (e.g. `http://settlement:8083`). Empty disables the executor. |
+| `EXECUTOR_MODE` | `mock` | `mock` (simulated run, zero docker/GPU needed) or `docker` (run the spec's image when a docker CLI exists; falls back to mock otherwise). |
+| `MOCK_JOB_DURATION` | `6s` | Mock-run duration when the job spec has no `mock_duration_seconds`. |
+| `JOBS_POLL_INTERVAL` | `5s` | Job poll interval. |
 | `METRICS_ADDR` | `:9100` | Prometheus listen address (`prometheus`/`both`). |
 | `COLLECT_INTERVAL` | `5s` | Telemetry collect/sign/ship interval. |
 | `HEARTBEAT_INTERVAL` | `15s` | Heartbeat interval. |
@@ -92,6 +96,25 @@ mirroring the proto fields 1:1:
 sent_at_unix_ms)`". The v1 encoding of that concatenation is
 `UTF-8(node_id)` followed by the **decimal ASCII** of `sent_at_unix_ms`
 (e.g. `sha256("n-1" + "1755000000000")`).
+
+## Workload executor (Phase 4)
+
+When `JOBS_URL` is set, the agent polls the settlement job control plane
+(stdlib HTTP — no Kafka client on the agent, per the portability rule):
+
+- `GET {JOBS_URL}/v1/jobs/poll?node_id=&limit=` — queued jobs for this node.
+- `POST {JOBS_URL}/v1/jobs/{id}/status` — signed transitions
+  (`started`/`completed`/`failed`). Signature: base64 Ed25519 over
+  `sha256(node_id || job_id || status || decimal(sent_at_unix_ms))` — the
+  heartbeat scheme extended with job_id+status, verified against
+  `seller_nodes.public_key`.
+
+`mock` mode reports started, sleeps `mock_duration_seconds` from the spec
+(else `MOCK_JOB_DURATION`), reports completed. `docker` mode runs
+`docker run --rm <image> <command...>` (5 min cap) when the spec has an
+image and a docker CLI exists; otherwise it logs and falls back to mock.
+Idempotency: per-process dedupe plus server-side atomic transitions — a
+duplicate report is a 409, treated as already handled.
 
 ## Key management
 

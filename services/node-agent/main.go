@@ -39,6 +39,11 @@ type config struct {
 	MeminfoPath       string
 	CollectInterval   time.Duration
 	HeartbeatInterval time.Duration
+	// Workload executor (executor.go). Disabled when JobsURL is empty.
+	JobsURL         string
+	ExecutorMode    string // mock | docker
+	MockJobDuration time.Duration
+	JobsPollInterval time.Duration
 }
 
 func envOr(key, fallback string) string {
@@ -82,6 +87,19 @@ func loadConfig() (config, error) {
 	}
 	if cfg.HeartbeatInterval, err = envDuration("HEARTBEAT_INTERVAL", 15*time.Second); err != nil {
 		return cfg, err
+	}
+	cfg.JobsURL = os.Getenv("JOBS_URL")
+	cfg.ExecutorMode = envOr("EXECUTOR_MODE", "mock")
+	if cfg.MockJobDuration, err = envDuration("MOCK_JOB_DURATION", 6*time.Second); err != nil {
+		return cfg, err
+	}
+	if cfg.JobsPollInterval, err = envDuration("JOBS_POLL_INTERVAL", 5*time.Second); err != nil {
+		return cfg, err
+	}
+	switch cfg.ExecutorMode {
+	case "mock", "docker":
+	default:
+		return cfg, fmt.Errorf("EXECUTOR_MODE %q invalid: want mock|docker", cfg.ExecutorMode)
 	}
 	switch cfg.Mode {
 	case "direct", "prometheus", "both":
@@ -204,6 +222,13 @@ func main() {
 		go cp.HeartbeatLoop(ctx, nodeID, cfg.SellerID, cfg.HeartbeatInterval)
 	} else {
 		log.Print("VERIFIER_URL unset; heartbeat disabled")
+	}
+
+	// Workload executor: polls the settlement job control plane.
+	if cfg.JobsURL != "" {
+		go newExecutor(cfg.JobsURL, nodeID, signer, cfg.ExecutorMode, cfg.MockJobDuration, cfg.JobsPollInterval).run(ctx, 4)
+	} else {
+		log.Print("JOBS_URL unset; workload executor disabled")
 	}
 
 	// Telemetry transports.
