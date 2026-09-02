@@ -194,3 +194,30 @@ func TestSettlementFailedMatchesAvro(t *testing.T) {
 		OccurredAtUnixMs: 2,
 	})
 }
+
+// Emitted to `node-jobs` on every job lifecycle transition.
+func TestJobEventMatchesAvro(t *testing.T) {
+	pinToAvro(t, "JobEvent", JobEvent{
+		EventID:          "e3",
+		JobID:            "j1",
+		TradeID:          "t1",
+		NodeID:           "n1",
+		Symbol:           "H100:us-east-1",
+		BuyerID:          "u1",
+		SellerID:         "u2",
+		Status:           "ASSIGNED",
+		OccurredAtUnixMs: 3,
+	})
+	pinToAvro(t, "JobEvent", JobEvent{
+		EventID:          "e4",
+		JobID:            "j1",
+		TradeID:          "t1",
+		NodeID:           "n1",
+		Symbol:           "H100:us-east-1",
+		BuyerID:          "u1",
+		SellerID:         "u2",
+		Status:           "FAILED",
+		Reason:           "EXECUTION_ERROR",
+		OccurredAtUnixMs: 4,
+	})
+}

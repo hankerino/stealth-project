@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -32,6 +33,15 @@ func envOr(key, fallback string) string {
 	}
 	return fallback
 }
+
+// defaultMockJobSeconds is the mock-run duration the scheduler writes into
+// job specs (DEFAULT_MOCK_JOB_SECONDS; the node-agent may override per job).
+var defaultMockJobSeconds = func() int64 {
+	if v, err := strconv.Atoi(envOr("DEFAULT_MOCK_JOB_SECONDS", "6")); err == nil && v > 0 {
+		return int64(v)
+	}
+	return 6
+}()
 
 func main() {
 	dsn := os.Getenv("DATABASE_URL")
@@ -72,6 +82,11 @@ func main() {
 			log.Fatalf("create mtm producer: %v", err)
 		}
 		mtm.pub = mtmProd
+		jobsProd, err := newKafkaProducer(brokers, tls, jobsTopic)
+		if err != nil {
+			log.Fatalf("create jobs producer: %v", err)
+		}
+		svc.jobEventProducer = jobsProd
 
 		go func() {
 			log.Printf("settlement consumer starting on trades topic, brokers %q", brokers)
@@ -98,6 +113,8 @@ func main() {
 	mux.HandleFunc("/v1/escrow/deposit", api.handleDeposit)
 	mux.HandleFunc("/v1/escrow/balance", api.handleBalance)
 	mux.HandleFunc("/v1/mtm/run", api.handleMTMRun)
+	mux.HandleFunc("/v1/jobs/poll", api.handleJobsPoll)
+	mux.HandleFunc("/v1/jobs/{id}/status", api.handleJobStatus)
 
 	addr := envOr("LISTEN_ADDR", ":8083")
 	srv := &http.Server{Addr: addr, Handler: mux}

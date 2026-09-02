@@ -62,126 +62,14 @@ var errInsufficientFunds = errors.New("insufficient escrow balance")
 type settlementService struct {
 	db                  *sql.DB
 	failedEventProducer *kafkaProducer // nil in dev mode (no Kafka)
+	jobEventProducer    *kafkaProducer // nil in dev mode (no Kafka)
 	mtm                 *mtmRunner     // daily mark-to-market runner
 }
 
-// settleTrade processes one TradeExecuted event atomically:
-// 1. Determine buyer/seller from aggressor side.
-// 2. Check buyer escrow balance >= total_cost.
-// 3. If sufficient: debit buyer, credit seller, insert SETTLED ledger row.
-// 4. If insufficient: insert FAILED ledger row, emit SettlementFailed.
-//
-// All DB writes are in a single transaction. Idempotent: if trade_id already
-// exists in trade_ledger, the trade is skipped (already processed).
-func (s *settlementService) settleTrade(ctx context.Context, t *TradeExecuted) error {
-	totalCost := t.PriceCents * t.Quantity
-
-	// Determine buyer and seller from aggressor side.
-	// Aggressor = the one crossing the spread (taker). If aggressor is BUY,
-	// the taker is the buyer and maker is the seller. Vice versa for SELL.
-	var buyerID, sellerID string
-	if t.AggressorSide == AggressorBuy {
-		buyerID = t.TakerUserID
-		sellerID = t.MakerUserID
-	} else {
-		buyerID = t.MakerUserID
-		sellerID = t.TakerUserID
-	}
-
-	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-	if err != nil {
-		return fmt.Errorf("begin tx: %w", err)
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	// Idempotency check: skip if already processed.
-	var existingStatus string
-	err = tx.QueryRowContext(ctx,
-		`SELECT status FROM trade_ledger WHERE trade_id = $1`, t.TradeID,
-	).Scan(&existingStatus)
-	if err == nil {
-		// Already processed — skip.
-		return nil
-	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("check existing trade: %w", err)
-	}
-
-	// Check buyer balance.
-	var buyerBalance int64
-	err = tx.QueryRowContext(ctx,
-		`SELECT balance FROM escrow_accounts WHERE user_id = $1 FOR UPDATE`,
-		buyerID,
-	).Scan(&buyerBalance)
-	if errors.Is(err, sql.ErrNoRows) {
-		buyerBalance = 0
-	} else if err != nil {
-		return fmt.Errorf("select buyer balance: %w", err)
-	}
-
-	if buyerBalance < totalCost {
-		// Insufficient funds — record FAILED and emit event.
-		_, err = tx.ExecContext(ctx, `
-			INSERT INTO trade_ledger (trade_id, symbol, buyer_id, seller_id, price_cents,
-			                           quantity, total_cost, status, failure_reason)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-			t.TradeID, t.Symbol, buyerID, sellerID, t.PriceCents,
-			t.Quantity, totalCost, StatusFailed, "INSUFFICIENT_FUNDS",
-		)
-		if err != nil {
-			return fmt.Errorf("insert failed trade: %w", err)
-		}
-		if err := tx.Commit(); err != nil {
-			return fmt.Errorf("commit failed trade: %w", err)
-		}
-		// Emit SettlementFailed event (best-effort, outside the tx).
-		s.emitSettlementFailed(t.TradeID, t.Symbol, buyerID, sellerID, totalCost, "INSUFFICIENT_FUNDS")
-		log.Printf("trade %s FAILED: buyer %s has %d cents, needs %d", t.TradeID, buyerID, buyerBalance, totalCost)
-		return nil
-	}
-
-	// Sufficient funds — debit buyer, credit seller.
-	_, err = tx.ExecContext(ctx,
-		`UPDATE escrow_accounts SET balance = balance - $1, updated_at = now()
-		 WHERE user_id = $2`,
-		totalCost, buyerID,
-	)
-	if err != nil {
-		return fmt.Errorf("debit buyer: %w", err)
-	}
-
-	// Upsert seller escrow account (credit, creating if missing).
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO escrow_accounts (user_id, balance, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (user_id) DO UPDATE
-			SET balance = escrow_accounts.balance + $2, updated_at = now()`,
-		sellerID, totalCost,
-	)
-	if err != nil {
-		return fmt.Errorf("credit seller: %w", err)
-	}
-
-	// Record SETTLED in trade_ledger.
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO trade_ledger (trade_id, symbol, buyer_id, seller_id, price_cents,
-		                           quantity, total_cost, status, settled_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
-		t.TradeID, t.Symbol, buyerID, sellerID, t.PriceCents,
-		t.Quantity, totalCost, StatusSettled,
-	)
-	if err != nil {
-		return fmt.Errorf("insert settled trade: %w", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("commit: %w", err)
-	}
-
-	log.Printf("trade %s SETTLED: buyer %s -> seller %s, %d cents for %d units",
-		t.TradeID, buyerID, sellerID, totalCost, t.Quantity)
-	return nil
-}
+// Trade settlement flow (Phase 4): the consumer's trades handler is
+// createJobForTrade (jobs.go) — escrow is HELD at trade time and released
+// when the executing node reports completion. The previous settle-now
+// implementation was replaced; see jobs.go for the full lifecycle.
 
 // depositFunds adds to a buyer's escrow balance (idempotent upsert).
 func (s *settlementService) depositFunds(ctx context.Context, userID string, amountCents int64) (int64, error) {

@@ -86,8 +86,8 @@ func newKafkaConsumer(brokers string, tlsEnabled bool) (*kafkaConsumer, error) {
 // run consumes the trades topic with at-least-once, in-order settlement.
 //
 // Offset handling: we FetchMessage (which does NOT auto-commit) and only
-// CommitMessages after settleTrade succeeds. settleTrade returns nil for both
-// business outcomes (SETTLED and FAILED) — those commit immediately. It
+// CommitMessages after createJobForTrade succeeds. It returns nil for both
+// business outcomes (job queued / trade FAILED) — those commit immediately. It
 // returns an error only for transient infrastructure failures (e.g. the DB is
 // unreachable); in that case we retry the SAME trade with bounded backoff
 // instead of committing, so no trade is ever skipped or lost. Because the
@@ -117,7 +117,7 @@ func (c *kafkaConsumer) run(svc *settlementService) error {
 		// outcomes (SETTLED/FAILED) return nil and break immediately.
 		backoff := 500 * time.Millisecond
 		for {
-			if err := svc.settleTrade(context.Background(), &trade); err == nil {
+			if err := svc.createJobForTrade(context.Background(), &trade); err == nil {
 				break
 			} else {
 				log.Printf("settlement: trade %s transient error: %v — retrying in %s (offset %d not committed)",
@@ -145,20 +145,23 @@ type kafkaProducer struct {
 }
 
 func newKafkaProducer(brokers string, tlsEnabled bool, topic string) (*kafkaProducer, error) {
-	var transport *kafka.Transport
-	if tlsEnabled {
-		transport = &kafka.Transport{
-			TLS:         buildTLSConfig(),
-			DialTimeout: 10 * time.Second,
-			IdleTimeout: 30 * time.Second,
-		}
-	}
 	w := &kafka.Writer{
 		Addr:         kafka.TCP(strings.Split(brokers, ",")...),
 		Topic:        topic,
 		Balancer:     &kafka.Hash{},
 		RequiredAcks: kafka.RequireAll,
-		Transport:    transport,
+	}
+	if tlsEnabled {
+		// Only set Transport when TLS is on: assigning a nil *Transport to the
+		// interface field leaves a non-nil interface holding nil, and kafka-go
+		// then nil-derefs in grabPool on the first publish (latent until a
+		// producer from this constructor actually published — found by the
+		// jobs producer).
+		w.Transport = &kafka.Transport{
+			TLS:         buildTLSConfig(),
+			DialTimeout: 10 * time.Second,
+			IdleTimeout: 30 * time.Second,
+		}
 	}
 	return &kafkaProducer{w: w}, nil
 }
