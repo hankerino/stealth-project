@@ -27,7 +27,11 @@ CREATE TABLE IF NOT EXISTS seller_nodes (
 );
 
 -- Existing installs (created by the old inline DDL) keep their table;
--- align the two columns idempotently.
+-- align the two columns idempotently. ADD COLUMN IF NOT EXISTS first:
+-- some installs' tables predate these columns entirely (Render hit
+-- 42703 "column does not exist" on the bare ALTER).
+ALTER TABLE seller_nodes ADD COLUMN IF NOT EXISTS gpu_type_id BIGINT;
+ALTER TABLE seller_nodes ADD COLUMN IF NOT EXISTS region_id TEXT;
 ALTER TABLE seller_nodes ALTER COLUMN gpu_type_id TYPE BIGINT USING NULL;
 ALTER TABLE seller_nodes ALTER COLUMN region_id TYPE TEXT USING NULL;
 
