@@ -65,8 +65,10 @@ pub async fn tick(deps: &EngineDeps) -> Result<()> {
 
     // ---- node health transitions --------------------------------------------
     for node_id in &nodes {
-        let last_seen = deps.store.last_seen(node_id).await?;
-        let stale = match last_seen {
+        // Health uses any liveness proof (telemetry OR heartbeat); the
+        // DOWNTIME breach above deliberately uses telemetry only.
+        let last_activity = deps.store.last_activity(node_id).await?;
+        let stale = match last_activity {
             Some(t) => now_ms - t > deps.sla.downtime_secs * 1000,
             None => false, // sighted without timestamp info yet
         };

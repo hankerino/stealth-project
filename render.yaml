@@ -111,6 +111,9 @@ services:
         value: "false"
       - key: APP_VERSION
         value: render
+      # Shared secret for POST /v1/admin/offload (X-Admin-Token header).
+      - key: ADMIN_TOKEN
+        sync: false
       - key: DATABASE_URL
         fromDatabase:
           name: cte-postgres

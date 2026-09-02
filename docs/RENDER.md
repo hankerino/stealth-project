@@ -91,13 +91,12 @@ already in the environment.
 
 ## Known open items (unchanged by this blueprint)
 
-1. `POST /v1/admin/offload` on `cte-api` is unauthenticated — gate before
-   exposing the API publicly.
-2. No health endpoints on market-data / index-engine / fix-gateway (probes
+1. No health endpoints on market-data / index-engine / fix-gateway (probes
    are TCP or absent).
-3. Parquet offloader S3 write-path never live-tested (needs a bucket —
-   MinIO/R2/S3; set the `S3_*` dashboard vars to enable).
-4. fix-gateway batch 3b (gRPC forwarding + ExecutionReports from Kafka)
+2. Parquet offloader S3 write-path never live-tested (needs a bucket —
+   MinIO/R2/S3; set the `S3_*` dashboard vars to enable). The endpoint is
+   token-gated (`X-Admin-Token` / `ADMIN_TOKEN`, set in the dashboard).
+3. fix-gateway batch 3b (gRPC forwarding + ExecutionReports from Kafka)
    not implemented.
 
 ## First deploy checklist (Render dashboard)

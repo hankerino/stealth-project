@@ -70,11 +70,16 @@ impl RedisStore {
 
     /// Record a node without an active contract (heartbeat / telemetry with
     /// null active_contract_id) so it still gets health transitions.
+    ///
+    /// Writes `tv:hb_seen:` (heartbeat/control-plane liveness), NOT
+    /// `tv:last_seen:` — the DOWNTIME breach is defined on valid TELEMETRY
+    /// (see sla.rs), so a live agent that stops sending GPU telemetry must
+    /// still breach. Health transitions use last_activity() = max(both).
     pub async fn record_node_sighting(&self, node_id: &str, seller_id: &str, ts_ms: i64) -> Result<()> {
         let mut conn = self.conn.clone();
         redis::pipe()
             .atomic()
-            .cmd("SET").arg(format!("tv:last_seen:{node_id}")).arg(ts_ms).arg("EX").arg(86_400).ignore()
+            .cmd("SET").arg(format!("tv:hb_seen:{node_id}")).arg(ts_ms).arg("EX").arg(86_400).ignore()
             .cmd("SET").arg(format!("tv:seller:{node_id}")).arg(seller_id).arg("EX").arg(86_400).ignore()
             .cmd("SADD").arg(NODES_KEY).arg(node_id).ignore()
             .query_async::<()>(&mut conn)
@@ -91,6 +96,19 @@ impl RedisStore {
             .await
             .context("redis get last_seen")?;
         Ok(v)
+    }
+
+    /// Latest liveness proof of either kind (telemetry OR heartbeat). Used
+    /// by health transitions only — never by the DOWNTIME breach.
+    pub async fn last_activity(&self, node_id: &str) -> Result<Option<i64>> {
+        let mut conn = self.conn.clone();
+        let (tele, hb): (Option<i64>, Option<i64>) = redis::pipe()
+            .cmd("GET").arg(format!("tv:last_seen:{node_id}"))
+            .cmd("GET").arg(format!("tv:hb_seen:{node_id}"))
+            .query_async(&mut conn)
+            .await
+            .context("redis get last_activity")?;
+        Ok(tele.max(hb))
     }
 
     pub async fn seller_id(&self, node_id: &str) -> Result<Option<String>> {

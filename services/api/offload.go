@@ -15,6 +15,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/subtle"
 	"database/sql"
 	"fmt"
 	"log"
@@ -212,9 +213,18 @@ func (o *offloader) Run(ctx context.Context) {
 
 // handleOffload serves POST /v1/admin/offload — manual trigger.
 // Body (optional): {"from":"...","to":"..."} (RFC3339 or YYYY-MM-DD).
+//
+// Auth: requires the X-Admin-Token header to match the ADMIN_TOKEN env var
+// (constant-time compare). With ADMIN_TOKEN unset the endpoint is closed
+// (401 for everyone) — it must never be exposed unauthenticated.
 func (o *offloader) handleOffload(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+		return
+	}
+	token := os.Getenv("ADMIN_TOKEN")
+	if token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Admin-Token")), []byte(token)) != 1 {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid or missing X-Admin-Token"})
 		return
 	}
 	q := r.URL.Query()

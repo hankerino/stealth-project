@@ -95,15 +95,18 @@ The Compute Trading Exchange is an open, high-performance marketplace designed t
 - `sla_templates`: Standardized uptime, thermal, and bandwidth thresholds.
 - `orders`: Core ledger storing UUIDs, symbols, sides, prices, quantities, and execution statuses.
 
-**002_create_node_telemetry_schema.up.sql:**
+**002_create_node_telemetry_schema.up.sql** (superseded — `seller_nodes` is now
+owned by `services/telemetry-verifier/db/migrations/0001_seller_nodes.up.sql`;
+`gpu_type_id` is BIGINT → `gpu_types.id`, `region_id` is TEXT → `regions.code`,
+aligning the columns with their catalog FK targets):
 ```sql
 CREATE TABLE seller_nodes (
     node_id UUID PRIMARY KEY,
     seller_id UUID NOT NULL,
     public_key TEXT NOT NULL,
-    gpu_type_id UUID REFERENCES gpu_types(id),
-    region_id UUID REFERENCES regions(id),
-    status VARCHAR(32) NOT NULL DEFAULT 'REGISTERED',
+    gpu_type_id BIGINT REFERENCES gpu_types(id),
+    region_id TEXT REFERENCES regions(code),
+    status VARCHAR(32) NOT NULL DEFAULT 'active',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
@@ -168,48 +171,50 @@ git commit -m "feat: deploy node agent and telemetry verifier pipeline"
 git push origin main
 ```
 
-## 7. Operational & Technical Next Steps (Phase 1C state)
+## 7. Operational & Technical Next Steps (Phase 4 state)
 
-**Verified end-to-end on the cheap dev stack** (`scripts/e2e-full-loop.sh`,
-2026-08-31): seller node registration → Ed25519-signed telemetry →
-telemetry-verifier (signature verify, NodeOnline) → catalog reference data
-(H100/us-east-1) → escrow deposit → SELL+BUY orders via services/order
-(transactional outbox) → match in matching-engine → `TradeExecuted` →
-market-data WS fan-out → settlement (escrow moved, `trade_ledger` SETTLED)
-→ `SlaViolated(DOWNTIME)` + `PenaltyCalculated` on `sla-breach-events`.
+**Verified end-to-end on the cheap dev stack** (`scripts/e2e-full-loop.sh`):
+node-agent registration → Ed25519-signed telemetry → telemetry-verifier →
+capacity persisted with `gpu_type_id` → catalog reference data → escrow
+deposit → SELL+BUY via outbox → match → `TradeExecuted` → market-data WS
+fan-out → settlement **holds escrow** (`trade_ledger` PENDING) and queues a
+workload job (`JobAssigned` on `node-jobs`) → node-agent polls the job
+control plane, executes (mock), reports signed `started`/`completed` →
+escrow **released** to seller (`trade_ledger` SETTLED) →
+`SlaViolated(DOWNTIME)` + `PenaltyCalculated` on `sla-breach-events`.
 
 Done:
 - [x] **Transactional Outbox** in services/order (Phase 1B).
 - [x] **Trade Settlement Consumer** with escrow allocation (Phase 1B).
-- [x] **One-command dev stack** (`scripts/dev-up.sh`): compose up,
-      migrations + seed re-applied idempotently, six Kafka topics, smoke
-      check. Falls back to a local KRaft Kafka (`/tmp/kafka`) when the
-      redpanda image pull is rate-limited; active mode in
-      `infra/dev-stack/.kafka-mode`.
-- [x] **Repeatable full-loop e2e** (`scripts/e2e-full-loop.sh`) — fresh
-      UUIDs per run, trading topics reset, prints PASS/FAIL per stage.
-- [x] **Avro schema pins**: every produced/consumed Kafka event is
-      validated against `libs/schemas/*.avsc` in unit tests (order,
-      settlement, matching-engine, telemetry-verifier). Fixed drift found
-      this phase: verifier `register` TEXT→uuid cast against the real
-      seller_nodes schema; `seller_id` type aligned to uuid; nullable event
-      fields now serialize as explicit null (NodeHealthEvent.detail,
-      SlaBreach.uptime_pct/avg_utilization_pct); matching-engine
-      rdkafka-sys pin.
+- [x] **Workload execution loop (Phase 4)**: `jobs` table + `JobEvent.avsc`
+      + `node-jobs` topic; settlement creates a job per trade and holds
+      escrow until completion (release on COMPLETED, refund + SettlementFailed
+      on FAILED/NO_CAPACITY/INSUFFICIENT_FUNDS); node-agent executor
+      (stdlib-only HTTP poll, Ed25519-signed status transitions, mock mode
+      default, docker mode optional/fallback).
+- [x] **Capacity-drift fix**: `seller_nodes.gpu_type_id` → BIGINT FK
+      `gpu_types.id`, `region_id` → TEXT FK `regions.code` (formal migration
+      `services/telemetry-verifier/db/migrations/0001`); registration now
+      resolves the reported GPU model to `gpu_types.id`.
+- [x] **DOWNTIME/heartbeat separation**: heartbeat sightings no longer mark
+      telemetry liveness (`tv:hb_seen` vs `tv:last_seen`); DOWNTIME is
+      telemetry-true, health transitions use either signal.
+- [x] **Admin endpoint auth**: `POST /v1/admin/offload` requires
+      `X-Admin-Token` == `ADMIN_TOKEN` (401 otherwise; closed when unset).
+- [x] **One-command dev stack** (`scripts/dev-up.sh`) with KRaft fallback;
+      **repeatable full-loop e2e** incl. the workload stage; **Avro schema
+      pins** for every produced/consumed event (incl. JobEvent).
 
 Open (next phases):
-- [ ] **MSK Mutual TLS** client-certificate provisioning (AWS path only —
-      dev stack is plaintext).
-- [ ] **Catalog capacity API**: listing seller capacity per GPU type needs
-      the `seller_nodes.gpu_type_id` (uuid) vs `gpu_types.id` (bigserial)
-      drift resolved first; today capacity is the `seller_nodes` row and
-      catalog carries the GPU-type/region taxonomy only.
-- [ ] **Book-depth restore** from Redis snapshots (aggregated levels only;
-      richer snapshot format needed).
-- [ ] **Per-contract SLA terms** + real penalty formula (placeholder
-      `SLA_PENALTY_CREDITS_PER_MIN` rate today).
-- [ ] **gRPC server** for the node control plane (HTTP/JSON shim today;
-      proto is the contract of record).
+- [ ] **MSK Mutual TLS** client-certificate provisioning (AWS path only).
+- [ ] **Book-depth restore** from Redis snapshots (aggregated levels only).
+- [ ] **Per-contract SLA terms** + real penalty formula (placeholder rate).
+- [ ] **gRPC server** for the node control plane (HTTP/JSON shims today).
 - [ ] **Cilium bootstrap handling** for transient NotReady nodes (EKS path).
-- [ ] **market-data quote approximation**: `OrderUpdated` carries neither
-      price nor side; quotes are approximations (documented in its README).
+- [ ] **market-data quote approximation** (OrderUpdated carries no price/side).
+- [ ] **Job progress events**: the mock executor emits started/completed
+      only; mid-run progress (via telemetry fields or a JobEvent RUNNING
+      state) is a follow-up.
+- [ ] **Job dispatch via `node-jobs` consumers**: the durable lifecycle
+      stream exists; the agent polls HTTP today (stdlib-only constraint) —
+      a Kafka-native executor variant can consume `node-jobs` directly later.

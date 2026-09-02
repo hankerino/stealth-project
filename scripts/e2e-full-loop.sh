@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # e2e-full-loop.sh — one complete trade loop on the cheap dev stack:
 #
-#   register seller node -> signed telemetry -> redpanda -> telemetry-verifier
-#   -> capacity reference data in catalog -> escrow deposit -> SELL + BUY orders
-#   via services/order (outbox) -> match in matching-engine -> TradeExecuted ->
-#   market-data WS fan-out -> settlement consumes + moves escrow -> SLA scoring
-#   + DOWNTIME breach events.
+#   node-agent registers (signed control plane) -> signed telemetry -> kafka ->
+#   telemetry-verifier (signature verify, NodeOnline) -> capacity recorded with
+#   gpu_type_id in seller_nodes -> catalog reference data -> escrow deposit ->
+#   SELL + BUY orders via services/order (outbox) -> match in matching-engine
+#   -> TradeExecuted -> market-data WS fan-out -> settlement HOLDS escrow +
+#   queues a job (JobAssigned on node-jobs) -> node-agent polls, mock-executes,
+#   reports signed started/completed -> escrow RELEASED to seller
+#   (trade_ledger SETTLED) -> SLA scoring + DOWNTIME breach events.
 #
 # Repeatable: every run uses fresh UUIDs / RUN_ID-tagged users, so stale topic
 # or table data can never produce a false PASS. Requires the dev stack
@@ -132,7 +135,7 @@ fi
 # ---- 1. build ---------------------------------------------------------------
 rm -rf "$WORKDIR" && mkdir -p "$BIN" "$LOGS" "$KEYS"
 log "building Go services"
-for svc in catalog order settlement; do
+for svc in catalog order settlement node-agent; do
   (cd "$REPO_ROOT/services/$svc" && go build -o "$BIN/$svc" .) || fail "go build $svc"
 done
 log "building Rust services (debug)"
@@ -156,7 +159,7 @@ DATABASE_URL="$DATABASE_URL" KAFKA_BROKERS="$KAFKA_BROKERS" KAFKA_TLS_ENABLED=fa
   LISTEN_ADDR="$ORDER_ADDR" GRPC_ADDR="$ORDER_GRPC_ADDR" \
   "$BIN/order" >"$LOGS/order.log" 2>&1 & PIDS+=($!)
 DATABASE_URL="$DATABASE_URL" KAFKA_BROKERS="$KAFKA_BROKERS" KAFKA_TLS_ENABLED=false \
-  LISTEN_ADDR="$SETTLEMENT_ADDR" \
+  LISTEN_ADDR="$SETTLEMENT_ADDR" DEFAULT_MOCK_JOB_SECONDS=3 \
   "$BIN/settlement" >"$LOGS/settlement.log" 2>&1 & PIDS+=($!)
 DATABASE_URL="$DATABASE_URL" REDIS_URL="$REDIS_URL" KAFKA_BROKERS="$KAFKA_BROKERS" \
   KAFKA_TLS_ENABLED=false REGISTRATION_TOKEN="$REGISTRATION_TOKEN" \
@@ -180,21 +183,34 @@ wait_http "localhost:8081" 2 market-data || true  # WS upgrade-less GET may 400;
 (exec 3<>/dev/tcp/127.0.0.1/8081) 2>/dev/null || fail "market-data not listening"
 log "all services healthy"
 
-# ---- 3. register seller GPU node ---------------------------------------------
-log "registering seller node (seller_id=$SELLER_NODE_ID)"
-"$PRODUCER_BIN" keygen "$KEYS" >/dev/null || fail "keygen"
-PUBKEY="$(cat "$KEYS/public_key.b64")"
-REG_RESP="$(curl -fsS -X POST localhost:8082/v1/nodes/register \
-  -H 'content-type: application/json' \
-  -d "{\"seller_id\":\"$SELLER_NODE_ID\",\"registration_token\":\"$REGISTRATION_TOKEN\",\"gpus\":[{\"model\":\"H100\",\"uuid\":\"GPU-$RUN_ID\",\"vram_mb\":81920}],\"public_key_pem\":\"$PUBKEY\"}")" \
-  || fail "register request"
-NODE_ID="$(printf '%s' "$REG_RESP" | python3 -c 'import json,sys; print(json.load(sys.stdin)["node_id"])')"
-[ -n "$NODE_ID" ] || fail "no node_id in $REG_RESP"
+# ---- 3. seller node: live node-agent (registration + workload executor) -------
+log "starting node-agent (seller_id=$SELLER_NODE_ID)"
+AGENT_DIR="$WORKDIR/agent" && mkdir -p "$AGENT_DIR"
+AGENT_FAKE_GPU=1 SELLER_ID="$SELLER_NODE_ID" \
+  VERIFIER_URL=http://localhost:8082 REGISTRATION_TOKEN="$REGISTRATION_TOKEN" \
+  KEY_PATH="$AGENT_DIR/key.pem" STATE_PATH="$AGENT_DIR/state.json" \
+  MODE=prometheus METRICS_ADDR=127.0.0.1:0 \
+  JOBS_URL=http://localhost:8083 EXECUTOR_MODE=mock \
+  JOBS_POLL_INTERVAL=1s MOCK_JOB_DURATION=3s \
+  "$BIN/node-agent" >"$LOGS/node-agent.log" 2>&1 & PIDS+=($!)
+for _ in $(seq 1 20); do [ -f "$AGENT_DIR/state.json" ] && break; sleep 1; done
+[ -f "$AGENT_DIR/state.json" ] || { tail -20 "$LOGS/node-agent.log"; fail "node-agent did not register"; }
+NODE_ID="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["node_id"])' "$AGENT_DIR/state.json")"
+[ -n "$NODE_ID" ] || fail "empty node_id"
 printf '%s' "$NODE_ID" > "$KEYS/node_id"
-log "registered node $NODE_ID"
-[ "$(psqlq "SELECT count(*) FROM seller_nodes WHERE node_id='$NODE_ID'")" = "1" ] \
-  || fail "seller_nodes row missing"
-log "capacity record persisted in seller_nodes"
+log "node-agent registered node $NODE_ID"
+# The telemetry producer signs with the agent's key: extract the raw 32-byte
+# Ed25519 seed from its PKCS#8 PEM into the producer's key format (produce
+# mode only needs secret_key.b64; registration already sent the public key).
+python3 - "$AGENT_DIR/key.pem" "$KEYS/secret_key.b64" <<'PY'
+import base64, sys
+pem = open(sys.argv[1]).read()
+der = base64.b64decode("".join(l for l in pem.splitlines() if not l.startswith("-----")))
+open(sys.argv[2], "w").write(base64.b64encode(der[-32:]).decode())
+PY
+GPU_TYPE_ID="$(psqlq "SELECT gpu_type_id FROM seller_nodes WHERE node_id='$NODE_ID'")"
+[ -n "$GPU_TYPE_ID" ] || fail "capacity record missing gpu_type_id"
+log "capacity record persisted (node $NODE_ID, gpu_type_id=$GPU_TYPE_ID)"
 
 # ---- 4. signed telemetry -> redpanda -> verifier ------------------------------
 log "producing 4 signed telemetry envelopes (1s apart, util 88%)"
@@ -257,7 +273,12 @@ wait "$WS_TAP_PID" || { cat "$LOGS/ws-tap.log"; fail "ws_tap saw no trade for $S
 grep -q "trades.$SYMBOL" "$LOGS/ws-tap.log" || fail "ws_tap output unexpected"
 log "market-data fanned the trade out over WS"
 
-# ---- 10. settlement -------------------------------------------------------------
+# ---- 10. escrow HOLD + workload execution ---------------------------------------
+# Assert the lifecycle, not instantaneous states: the agent completes the mock
+# job in ~4s, so PENDING is not always catchable live. Hold proof that is
+# race-free: ledger settled_at - created_at >= 2s (release happens at job
+# completion, not at trade time), buyer debited exactly EXPECTED_COST, and
+# JobAssigned precedes JobStarted/JobCompleted on the topic.
 EXPECTED_COST=$((PRICE_CENTS * QUANTITY))
 EXPECTED_BUYER=$((DEPOSIT_CENTS - EXPECTED_COST))
 BAL=""
@@ -266,12 +287,32 @@ for _ in $(seq 1 20); do
   [ "$BAL" = "$EXPECTED_BUYER" ] && break
   sleep 1
 done
-[ "$BAL" = "$EXPECTED_BUYER" ] || fail "buyer balance $BAL, expected $EXPECTED_BUYER"
+[ "$BAL" = "$EXPECTED_BUYER" ] || fail "buyer balance after hold $BAL, expected $EXPECTED_BUYER"
+TRADE_ID="$(psqlq "SELECT trade_id FROM trade_ledger WHERE buyer_id='$BUYER_USER' AND seller_id='$SELLER_USER' ORDER BY created_at DESC LIMIT 1")"
+[ -n "$TRADE_ID" ] || fail "no trade_ledger row for the trade"
+JOB_ID="$(psqlq "SELECT job_id FROM jobs WHERE trade_id='$TRADE_ID'")"
+[ -n "$JOB_ID" ] || fail "no job for trade $TRADE_ID"
+log "escrow held at trade (buyer $EXPECTED_BUYER); job $JOB_ID queued for the node-agent"
+
+# The node-agent (already polling) executes: started -> mock run -> completed.
+JOB_STATUS=""
+for _ in $(seq 1 30); do
+  JOB_STATUS="$(psqlq "SELECT status FROM jobs WHERE job_id='$JOB_ID'")"
+  [ "$JOB_STATUS" = "completed" ] && break
+  sleep 1
+done
+[ "$JOB_STATUS" = "completed" ] || { tail -15 "$LOGS/node-agent.log"; fail "job status=$JOB_STATUS, expected completed"; }
+JOBS_OUT="$(consume node-jobs 8)"
+grep "$JOB_ID" <<<"$JOBS_OUT" | grep -q "ASSIGNED" || { echo "$JOBS_OUT"; fail "no JobAssigned for $JOB_ID"; }
+grep "$JOB_ID" <<<"$JOBS_OUT" | grep -q "STARTED" || fail "no JobStarted for $JOB_ID"
+grep "$JOB_ID" <<<"$JOBS_OUT" | grep -q "COMPLETED" || fail "no JobCompleted for $JOB_ID"
+HOLD_SECS="$(psqlq "SELECT EXTRACT(EPOCH FROM (settled_at - created_at))::int FROM trade_ledger WHERE trade_id='$TRADE_ID'")"
+[ "${HOLD_SECS:-0}" -ge 2 ] || fail "no hold visible: settled_at-created_at=${HOLD_SECS}s (<2s — released at trade time?)"
 SELL_BAL="$(curl -fsS "localhost:8083/v1/escrow/balance?user_id=$SELLER_USER" | python3 -c 'import json,sys; print(json.load(sys.stdin)["balance"])')"
 [ "$SELL_BAL" = "$EXPECTED_COST" ] || fail "seller balance $SELL_BAL, expected $EXPECTED_COST"
-LEDGER="$(psqlq "SELECT status FROM trade_ledger WHERE buyer_id='$BUYER_USER' AND seller_id='$SELLER_USER' ORDER BY created_at DESC LIMIT 1")"
+LEDGER="$(psqlq "SELECT status FROM trade_ledger WHERE trade_id='$TRADE_ID'")"
 [ "$LEDGER" = "SETTLED" ] || fail "trade_ledger status=$LEDGER"
-log "settlement done: buyer $EXPECTED_BUYER, seller $SELL_BAL, ledger SETTLED ($EXPECTED_COST cents)"
+log "workload executed; escrow released after ${HOLD_SECS}s hold: ledger SETTLED, seller $SELL_BAL ($EXPECTED_COST cents)"
 
 # ---- 11. SLA scoring + breach ----------------------------------------------------
 log "telemetry stopped; expecting DOWNTIME breach (~${SLA_DOWNTIME_SECS}s after last sample)"
@@ -287,4 +328,4 @@ log "SlaViolated(DOWNTIME) + PenaltyCalculated observed for contract $CONTRACT_I
 echo
 echo "PASS: full trade loop verified (run $RUN_ID)"
 echo "  node $NODE_ID | contract $CONTRACT_ID"
-echo "  trade $SELL_ID x $BUY_ID settled for $EXPECTED_COST cents"
+echo "  trade $SELL_ID x $BUY_ID | job $JOB_ID completed, released $EXPECTED_COST cents"
