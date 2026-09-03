@@ -74,7 +74,8 @@ for every service it touches. "Done" = CI green.
 
 ## M-phases after Phase 4 (MVP product layer, decided 2026-09-03)
 - [x] M1 Auth/accounts — done by desktop agent (e20e309..aeec1ca), verified live.
-- [x] M2 Frontend — this branch.
+- [x] M2 Frontend — merged, live (cte-web). First real end-to-end trade
+      executed 2026-09-03 (see Review).
 - [ ] M3 Real payments (Stripe): escrow deposit via payment link + webhook,
       seller payouts, in services/settlement.
 
@@ -82,4 +83,20 @@ for every service it touches. "Done" = CI green.
 - Phase 2, 3 merged and live on Render. Phase 4 workload loop live.
 - M1: gateway rejects no/garbage token (401), direct service calls without
   gateway secret (401), public catalog 200. Supabase schema complete; JWT
-  claims hook enablement (dashboard toggle) still unconfirmed.
+  claims hook ENABLED and verified (claims present, founder account
+  admin+verified, deposits/orders accepted).
+- M2 / first live trade (2026-09-03): Henk placed SELL+BUY 1xH100:us-east-1
+  @ $100 from the UI. Pipeline order -> outbox -> Redpanda -> matching ->
+  trades -> settlement now works end to end; orders show FILLED in the UI.
+  Three prod bugs found and fixed on the way:
+    1. Redpanda topics never created (only node-jobs/trades existed) —
+       created via Render shell (manual step, documented in render.yaml).
+    2. settlement consumer wedged: kafka.Dialer.Deadline was an absolute
+       start+30s instant -> silent reconnect failures. Removed + ErrorLogger.
+    3. seller_nodes.status missing on live DB (migration back-fill omitted
+       it) -> settlement 42703 retry loop. Idempotent ADD COLUMN added.
+  Plus one gap closed: nothing consumed order-updates into the orders table
+  (orders stayed OPEN after fills). New consumer in services/order.
+  Known/expected: trade settled as FAILED/NO_CAPACITY because no seller node
+  is registered for H100 — escrow correctly untouched. "Recent trades"/Last in
+  the UI only show trades that happen while the WS session is open.
