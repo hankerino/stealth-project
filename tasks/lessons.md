@@ -48,3 +48,6 @@
   `github_pat_`, (2) push via `https://x-access-token:$T@github.com/...` with
   the token in a shell variable only, (3) verify `.git/` stays token-free.
   Never print the token. Never offer a patch file as the primary deliverable.
+- Addendum: never `git push -u` with a token URL — it persists the token as
+  the branch's `remote` in .git/config. Push without -u, or set upstream to
+  `origin` afterwards; always run the `grep -rq github_pat .git/` check.
