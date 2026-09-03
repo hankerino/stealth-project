@@ -28,3 +28,13 @@
 - Rule: Rust services using rdkafka need `cmake build-essential pkg-config
   libssl-dev libcurl4-openssl-dev` + CMAKE_POLICY_VERSION_MINIMUM=3.5 in CI
   (mirror the service Dockerfile's build deps).
+
+## 2026-09-03 — check main before building
+- Another agent (desktop Claude Code) landed all of M1 while this session was
+  paused. Rule: on resume, `git log` main and read docs/ before writing a
+  line — verify what exists live (probe endpoints, query Supabase) instead of
+  assuming the plan is still unbuilt.
+- Render request logs are not available on starter; probe status codes from
+  the in-app browser (same-origin fetch on the service's own URL to dodge CORS).
+- Sandbox egress: npm registry IS reachable (unlike Go/crates hosts) — Next.js
+  can be built and type-checked locally before pushing.

@@ -166,6 +166,37 @@ services:
       - key: RATE_LIMIT_BURST
         value: "40"
 
+  # ---------------------------------------------------------------------
+  # Web UI (M2) — Next.js, Node runtime. Talks to cte-api through a same-
+  # origin rewrite (/api/gw/* -> GATEWAY_URL) so the gateway needs no CORS,
+  # and to cte-market-data directly over WebSocket (public quotes).
+  # ---------------------------------------------------------------------
+
+  - type: web
+    name: cte-web
+    runtime: node
+    plan: starter
+    rootDir: frontend/web
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /login
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_TELEMETRY_DISABLED
+        value: "1"
+      # Server-side proxy target. Public URL: the browser never sees it, but
+      # the Next server runs on the private network too, so either works.
+      - key: GATEWAY_URL
+        value: https://cte-api-esnd.onrender.com
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://diviltkcrvxshvfchufd.supabase.co
+      # Public anon key (safe in the browser; RLS enforces access).
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: NEXT_PUBLIC_MARKETDATA_WS_URL
+        value: wss://cte-market-data.onrender.com
+
   - type: web
     name: cte-market-data
     runtime: docker # Rust service: build from the repo Dockerfile
