@@ -9,7 +9,7 @@ client tried to supply.
 
 ```
 client ──Authorization: Bearer <supabase JWT>──▶ cte-api (gateway)
-    verify HS256 (SUPABASE_JWT_SECRET) · RBAC · rate-limit
+    verify ES256 vs project JWKS · RBAC · rate-limit
     strip X-Account-* / X-Gateway-Secret from the client
     inject X-Account-Id, X-Account-Role, X-Account-Verified, X-Gateway-Secret
                               │
@@ -31,13 +31,24 @@ own; role/verified changed only via the service-role key), and a
 `custom_access_token_hook` that injects `account_role` + `account_verified` into
 the JWT so the gateway needs no per-request DB call.
 
+## JWT verification (ES256 / JWKS)
+
+This project signs access tokens with an **asymmetric ES256 key**, published at
+`{SUPABASE_URL}/auth/v1/.well-known/jwks.json`. The gateway fetches and caches
+that JWKS and verifies signatures with `crypto/ecdsa` — **no shared secret to
+store**. On key rotation (unknown `kid`) it refetches automatically.
+
+Legacy fallback: if `SUPABASE_JWT_SECRET` *is* set, the gateway uses HS256
+instead (for a project switched to legacy symmetric signing). Default path needs
+no secret.
+
 ## Environment variables (cte-api)
 
 | Var | Purpose |
 |-----|---------|
-| `SUPABASE_JWT_SECRET` | HS256 secret; verifies access tokens. **Unset ⇒ protected routes 503 (fail closed).** |
-| `SUPABASE_URL` | Project URL. |
-| `SUPABASE_ANON_KEY` | Client key (reference). |
+| `SUPABASE_URL` | Project URL. **Drives ES256/JWKS verification. Unset (and no HS256 secret) ⇒ protected routes 503 (fail closed).** |
+| `SUPABASE_ANON_KEY` | Sent as the `apikey` header when fetching the JWKS. |
+| `SUPABASE_JWT_SECRET` | Optional legacy HS256 secret. Leave unset for ES256/JWKS. |
 | `GATEWAY_SHARED_SECRET` | Stamped on internal calls; must match on cte-order/cte-settlement. |
 | `ORDER_ADDR` / `SETTLEMENT_ADDR` / `CATALOG_ADDR` / `MARKETDATA_ADDR` | Private-network downstream URLs. |
 | `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` | Per-account token bucket. |
@@ -48,10 +59,11 @@ the JWT so the gateway needs no per-request DB call.
 ## Manual steps (not done by code)
 
 1. **Set the secrets in the Render dashboard.** Render env is NOT auto-synced
-   from `render.yaml`; every `sync: false` var above must be entered by hand on
-   each service. Use the same `GATEWAY_SHARED_SECRET` value on cte-api,
-   cte-order, and cte-settlement. Put the Supabase project's JWT secret in
-   `SUPABASE_JWT_SECRET`.
+   from `render.yaml`; every `sync: false` var must be entered by hand on each
+   service. Use the same `GATEWAY_SHARED_SECRET` value on cte-api, cte-order,
+   and cte-settlement. `SUPABASE_ANON_KEY` goes on cte-api. (No
+   `SUPABASE_JWT_SECRET` is needed — ES256/JWKS verification uses the public
+   key set.)
 2. **Enable the access-token hook** in the Supabase dashboard →
    Authentication → Hooks → *Customize Access Token (JWT) Claims* →
    `public.custom_access_token_hook`. Until then the gateway treats callers as

@@ -38,11 +38,13 @@ func baseClaims(now time.Time) map[string]any {
 
 const testSecret = "super-secret-supabase-jwt-signing-key"
 
+var testVerifier = hs256Verifier{secret: []byte(testSecret)}
+
 func TestVerifySupabaseJWT_Happy(t *testing.T) {
 	now := time.Now()
 	tok := mintToken(t, testSecret, "HS256", baseClaims(now))
 
-	c, err := verifySupabaseJWT(tok, []byte(testSecret), now)
+	c, err := verifySupabaseJWT(tok, testVerifier, now)
 	if err != nil {
 		t.Fatalf("expected valid token, got error: %v", err)
 	}
@@ -63,7 +65,7 @@ func TestVerifySupabaseJWT_AudArray(t *testing.T) {
 	cl["aud"] = []string{"authenticated", "somethingelse"}
 	tok := mintToken(t, testSecret, "HS256", cl)
 
-	if _, err := verifySupabaseJWT(tok, []byte(testSecret), now); err != nil {
+	if _, err := verifySupabaseJWT(tok, testVerifier, now); err != nil {
 		t.Fatalf("aud array should be accepted, got: %v", err)
 	}
 }
@@ -74,7 +76,7 @@ func TestVerifySupabaseJWT_Expired(t *testing.T) {
 	cl["exp"] = now.Add(-2 * time.Hour).Unix()
 	tok := mintToken(t, testSecret, "HS256", cl)
 
-	if _, err := verifySupabaseJWT(tok, []byte(testSecret), now); err != errExpired {
+	if _, err := verifySupabaseJWT(tok, testVerifier, now); err != errExpired {
 		t.Fatalf("want errExpired, got: %v", err)
 	}
 }
@@ -83,7 +85,7 @@ func TestVerifySupabaseJWT_BadSignature(t *testing.T) {
 	now := time.Now()
 	tok := mintToken(t, "the-wrong-secret", "HS256", baseClaims(now))
 
-	if _, err := verifySupabaseJWT(tok, []byte(testSecret), now); err != errBadSignature {
+	if _, err := verifySupabaseJWT(tok, testVerifier, now); err != errBadSignature {
 		t.Fatalf("want errBadSignature, got: %v", err)
 	}
 }
@@ -93,7 +95,7 @@ func TestVerifySupabaseJWT_WrongAlg(t *testing.T) {
 	// "none" and RS256 must both be rejected — we only trust HS256.
 	for _, alg := range []string{"none", "RS256", "HS512"} {
 		tok := mintToken(t, testSecret, alg, baseClaims(now))
-		if _, err := verifySupabaseJWT(tok, []byte(testSecret), now); err != errBadSignature {
+		if _, err := verifySupabaseJWT(tok, testVerifier, now); err != errBadSignature {
 			t.Errorf("alg %q: want errBadSignature, got: %v", alg, err)
 		}
 	}
@@ -105,7 +107,7 @@ func TestVerifySupabaseJWT_WrongAudience(t *testing.T) {
 	cl["aud"] = "anon"
 	tok := mintToken(t, testSecret, "HS256", cl)
 
-	if _, err := verifySupabaseJWT(tok, []byte(testSecret), now); err != errWrongAudience {
+	if _, err := verifySupabaseJWT(tok, testVerifier, now); err != errWrongAudience {
 		t.Fatalf("want errWrongAudience, got: %v", err)
 	}
 }
@@ -116,7 +118,7 @@ func TestVerifySupabaseJWT_NoSubject(t *testing.T) {
 	delete(cl, "sub")
 	tok := mintToken(t, testSecret, "HS256", cl)
 
-	if _, err := verifySupabaseJWT(tok, []byte(testSecret), now); err != errNoSubject {
+	if _, err := verifySupabaseJWT(tok, testVerifier, now); err != errNoSubject {
 		t.Fatalf("want errNoSubject, got: %v", err)
 	}
 }
@@ -124,7 +126,7 @@ func TestVerifySupabaseJWT_NoSubject(t *testing.T) {
 func TestVerifySupabaseJWT_Malformed(t *testing.T) {
 	now := time.Now()
 	for _, bad := range []string{"", "a.b", "a.b.c.d", "not-a-token"} {
-		if _, err := verifySupabaseJWT(bad, []byte(testSecret), now); err == nil {
+		if _, err := verifySupabaseJWT(bad, testVerifier, now); err == nil {
 			t.Errorf("expected error for malformed token %q", bad)
 		}
 	}
@@ -137,7 +139,7 @@ func TestVerifySupabaseJWT_MissingRoleDefaultsBuyer(t *testing.T) {
 	delete(cl, "account_verified")
 	tok := mintToken(t, testSecret, "HS256", cl)
 
-	c, err := verifySupabaseJWT(tok, []byte(testSecret), now)
+	c, err := verifySupabaseJWT(tok, testVerifier, now)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -152,7 +154,7 @@ func TestVerifySupabaseJWT_MissingRoleDefaultsBuyer(t *testing.T) {
 // --- middleware behavior ---
 
 func TestAuthMiddleware_FailsClosedWhenUnset(t *testing.T) {
-	a := newAuthenticator("", false)
+	a := newAuthenticator(nil, false)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/orders", nil)
 	a.middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +167,7 @@ func TestAuthMiddleware_FailsClosedWhenUnset(t *testing.T) {
 }
 
 func TestAuthMiddleware_DevBypass(t *testing.T) {
-	a := newAuthenticator("", true)
+	a := newAuthenticator(nil, true)
 	var gotRole string
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/orders", nil)
@@ -181,7 +183,7 @@ func TestAuthMiddleware_DevBypass(t *testing.T) {
 }
 
 func TestAuthMiddleware_RejectsMissingHeader(t *testing.T) {
-	a := newAuthenticator(testSecret, false)
+	a := newAuthenticator(testVerifier, false)
 	rr := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/v1/orders", nil)
 	a.middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -195,7 +197,7 @@ func TestAuthMiddleware_RejectsMissingHeader(t *testing.T) {
 
 func TestAuthMiddleware_AcceptsValidToken(t *testing.T) {
 	now := time.Now()
-	a := newAuthenticator(testSecret, false)
+	a := newAuthenticator(testVerifier, false)
 	a.now = func() time.Time { return now }
 	tok := mintToken(t, testSecret, "HS256", baseClaims(now))
 

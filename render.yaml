@@ -134,15 +134,18 @@ services:
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       # --- M1 auth gateway ---
-      # Supabase (dedicated project "stealth-project-auth"). HS256: the gateway
-      # verifies access tokens with the project JWT secret. NOTE: Render env is
-      # NOT auto-synced from this file — set every sync:false secret by hand in
-      # the dashboard (this repo learned that the hard way).
-      - key: SUPABASE_JWT_SECRET
-        sync: false
+      # Supabase (dedicated project "stealth-project-auth"). The project signs
+      # access tokens with ES256; the gateway verifies against the public JWKS
+      # at SUPABASE_URL/auth/v1/.well-known/jwks.json — no shared secret needed.
+      # SUPABASE_ANON_KEY is sent as the `apikey` header when fetching the JWKS.
+      # NOTE: Render env is NOT auto-synced from this file — set every sync:false
+      # secret by hand in the dashboard (this repo learned that the hard way).
       - key: SUPABASE_URL
         value: https://diviltkcrvxshvfchufd.supabase.co
       - key: SUPABASE_ANON_KEY
+        sync: false
+      # Optional legacy HS256 secret; leave unset for ES256/JWKS (the default).
+      - key: SUPABASE_JWT_SECRET
         sync: false
       # Stamped on internal calls (X-Gateway-Secret); downstreams reject calls
       # without it. Must match GATEWAY_SHARED_SECRET on cte-order/cte-settlement.

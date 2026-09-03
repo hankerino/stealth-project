@@ -3,9 +3,13 @@
 //
 // Env:
 //
-//	SUPABASE_JWT_SECRET   HS256 secret for verifying Supabase access tokens.
-//	                      Unset => protected routes fail closed (503), unless
-//	                      AUTH_DEV_BYPASS=true (local dev only).
+//	SUPABASE_URL          Project URL; drives ES256/JWKS verification (the
+//	                      default — no secret needed). Unset, with no HS256
+//	                      secret either, => protected routes fail closed
+//	                      (503), unless AUTH_DEV_BYPASS=true (local dev only).
+//	SUPABASE_ANON_KEY     Sent as the `apikey` header when fetching the JWKS.
+//	SUPABASE_JWT_SECRET   Optional legacy HS256 secret. If set, HS256 is used
+//	                      instead of ES256/JWKS.
 //	AUTH_DEV_BYPASS       "true" to run with a synthetic admin identity (dev).
 //	GATEWAY_SHARED_SECRET stamped on internal calls as X-Gateway-Secret so
 //	                      downstreams can confirm the request came via us.
@@ -31,19 +35,36 @@ func envFloat(key string, fallback float64) float64 {
 	return fallback
 }
 
+// selectVerifier picks the JWT verifier at startup: an explicit HS256 secret
+// takes precedence (legacy-configured project); otherwise ES256/JWKS backed
+// by SUPABASE_URL, the default for a modern Supabase project; nil (fail
+// closed, subject to AUTH_DEV_BYPASS) if neither is set.
+func selectVerifier(hs256Secret, supabaseURL, anonKey string) signatureVerifier {
+	if hs256Secret != "" {
+		return hs256Verifier{secret: []byte(hs256Secret)}
+	}
+	if supabaseURL != "" {
+		return newES256Verifier(supabaseURL, anonKey)
+	}
+	return nil
+}
+
 func registerGateway(mux *http.ServeMux) {
-	secret := os.Getenv("SUPABASE_JWT_SECRET")
+	hs256Secret := os.Getenv("SUPABASE_JWT_SECRET")
+	supabaseURL := os.Getenv("SUPABASE_URL")
+	anonKey := os.Getenv("SUPABASE_ANON_KEY")
 	devBypass := os.Getenv("AUTH_DEV_BYPASS") == "true"
 	gwSecret := os.Getenv("GATEWAY_SHARED_SECRET")
 
-	if secret == "" && !devBypass {
-		log.Print("SUPABASE_JWT_SECRET unset; gateway routes fail closed (503)")
+	verifier := selectVerifier(hs256Secret, supabaseURL, anonKey)
+	if verifier == nil && !devBypass {
+		log.Print("no JWT verifier configured (SUPABASE_JWT_SECRET/SUPABASE_URL unset); gateway routes fail closed (503)")
 	}
 	if gwSecret == "" {
 		log.Print("GATEWAY_SHARED_SECRET unset; downstream calls carry no gateway secret")
 	}
 
-	auth := newAuthenticator(secret, devBypass)
+	auth := newAuthenticator(verifier, devBypass)
 	rl := newRateLimiter(
 		envFloat("RATE_LIMIT_RPS", 20),
 		envFloat("RATE_LIMIT_BURST", 40),

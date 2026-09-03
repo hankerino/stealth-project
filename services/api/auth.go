@@ -1,15 +1,17 @@
 // Supabase JWT authentication for the trading-engine API gateway (M1).
 //
 // The gateway is the ONLY place identity is derived. It verifies the caller's
-// Supabase access token (HS256, signed with the project's JWT secret), extracts
-// the account UUID (the "sub" claim) and the role/verified flags, and stashes
-// them on the request context. Downstream services never see the raw token —
-// the proxy layer (proxy.go) forwards only the trusted X-Account-* headers.
+// Supabase access token, extracts the account UUID (the "sub" claim) and the
+// role/verified flags, and stashes them on the request context. Downstream
+// services never see the raw token — the proxy layer (proxy.go) forwards
+// only the trusted X-Account-* headers.
 //
-// HS256 verification is a symmetric HMAC-SHA256 check implemented with the
-// standard library only (crypto/hmac + crypto/sha256), matching Supabase's
-// default access-token signing and the repo's stdlib-first style — no external
-// JWT dependency, and CI `go mod tidy` fetches nothing new.
+// Signature verification is pluggable (see signatureVerifier): the dedicated
+// stealth-project-auth Supabase project signs access tokens with an
+// asymmetric ES256 key (see jwks.go), verified against the project's public
+// JWKS with no secret to store. A legacy HS256 shared-secret verifier is kept
+// for a project configured to sign symmetrically. Both are stdlib-only
+// (crypto/ecdsa / crypto/hmac + crypto/sha256) — no external JWT dependency.
 package main
 
 import (
@@ -92,43 +94,78 @@ func (c *Claims) effectiveRole() string {
 	return c.Role
 }
 
-// verifySupabaseJWT validates an HS256 JWT against the given secret and returns
-// its claims. It checks the signature, expiry/nbf (with skew), and that the
-// audience is "authenticated" (Supabase's audience for signed-in users).
-func verifySupabaseJWT(token string, secret []byte, now time.Time) (*Claims, error) {
+// jwtHeader is the decoded JOSE header fields the gateway cares about.
+type jwtHeader struct {
+	Alg string `json:"alg"`
+	Kid string `json:"kid"`
+	Typ string `json:"typ"`
+}
+
+// signatureVerifier checks a token's signature for one JWT algorithm.
+// Different Supabase projects sign access tokens differently: modern
+// projects use an asymmetric key (ES256, verified against the public JWKS —
+// see jwks.go) and legacy projects use a symmetric HS256 shared secret. The
+// gateway picks a verifier at startup (see gateway.go).
+type signatureVerifier interface {
+	// alg is the JWT "alg" header value this verifier accepts. A token whose
+	// header names a different algorithm is rejected before verify is ever
+	// called — this is what stops an attacker downgrading to "none" or a
+	// weaker algorithm the gateway isn't configured for.
+	alg() string
+	// verify checks the signature over signingInput ("header.payload") given
+	// the raw decoded signature bytes and the token's JOSE header.
+	verify(signingInput string, sig []byte, hdr jwtHeader) error
+}
+
+// hs256Verifier is the legacy symmetric verifier, used only when the gateway
+// is explicitly configured with SUPABASE_JWT_SECRET.
+type hs256Verifier struct {
+	secret []byte
+}
+
+func (h hs256Verifier) alg() string { return "HS256" }
+
+func (h hs256Verifier) verify(signingInput string, sig []byte, _ jwtHeader) error {
+	mac := hmac.New(sha256.New, h.secret)
+	mac.Write([]byte(signingInput))
+	expected := mac.Sum(nil)
+	if subtle.ConstantTimeCompare(sig, expected) != 1 {
+		return errBadSignature
+	}
+	return nil
+}
+
+// verifySupabaseJWT validates a JWT with the given verifier and returns its
+// claims. It checks the header algorithm against the verifier, the
+// signature, expiry/nbf (with skew), and that the audience is
+// "authenticated" (Supabase's audience for signed-in users).
+func verifySupabaseJWT(token string, verifier signatureVerifier, now time.Time) (*Claims, error) {
 	parts := strings.Split(token, ".")
 	if len(parts) != 3 {
 		return nil, errMalformed
 	}
 
-	// Verify header alg is HS256 before trusting anything else.
+	// Verify the header alg matches the configured verifier before trusting
+	// anything else — this rejects "none" and any algorithm the gateway
+	// isn't set up to check, explicitly.
 	headerJSON, err := base64.RawURLEncoding.DecodeString(parts[0])
 	if err != nil {
 		return nil, errMalformed
 	}
-	var header struct {
-		Alg string `json:"alg"`
-		Typ string `json:"typ"`
-	}
+	var header jwtHeader
 	if err := json.Unmarshal(headerJSON, &header); err != nil {
 		return nil, errMalformed
 	}
-	if header.Alg != "HS256" {
-		// Reject anything else, including "none", explicitly.
+	if header.Alg != verifier.alg() {
 		return nil, errBadSignature
 	}
 
-	// Recompute the signature over "header.payload" and constant-time compare.
 	signingInput := parts[0] + "." + parts[1]
-	mac := hmac.New(sha256.New, secret)
-	mac.Write([]byte(signingInput))
-	expectedSig := mac.Sum(nil)
-
 	gotSig, err := base64.RawURLEncoding.DecodeString(parts[2])
 	if err != nil {
 		return nil, errMalformed
 	}
-	if subtle.ConstantTimeCompare(gotSig, expectedSig) != 1 {
+	if err := verifier.verify(signingInput, gotSig, header); err != nil {
 		return nil, errBadSignature
 	}
 
@@ -188,20 +225,20 @@ func bearerToken(r *http.Request) (string, error) {
 	return strings.TrimSpace(h[len(prefix):]), nil
 }
 
-// authenticator verifies incoming JWTs. It fails CLOSED: if the JWT secret is
-// unset, every protected route returns 503 — this is the security milestone, so
-// we deliberately do NOT fall back to allow-all the way other optional deps in
-// this codebase degrade to no-ops. A single explicit dev escape hatch
-// (AUTH_DEV_BYPASS) is honored only when the secret is unset.
+// authenticator verifies incoming JWTs. It fails CLOSED: if no verifier is
+// configured, every protected route returns 503 — this is the security
+// milestone, so we deliberately do NOT fall back to allow-all the way other
+// optional deps in this codebase degrade to no-ops. A single explicit dev
+// escape hatch (AUTH_DEV_BYPASS) is honored only when no verifier is set.
 type authenticator struct {
-	secret    []byte
+	verifier  signatureVerifier
 	devBypass bool
 	now       func() time.Time
 }
 
-func newAuthenticator(secret string, devBypass bool) *authenticator {
+func newAuthenticator(verifier signatureVerifier, devBypass bool) *authenticator {
 	return &authenticator{
-		secret:    []byte(secret),
+		verifier:  verifier,
 		devBypass: devBypass,
 		now:       func() time.Time { return time.Now() },
 	}
@@ -210,7 +247,7 @@ func newAuthenticator(secret string, devBypass bool) *authenticator {
 // middleware verifies the bearer token and injects claims into the context.
 func (a *authenticator) middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(a.secret) == 0 {
+		if a.verifier == nil {
 			if a.devBypass {
 				// Dev only: synthesize an admin/verified identity so local
 				// work can proceed without a real Supabase project.
@@ -230,7 +267,7 @@ func (a *authenticator) middleware(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "missing or malformed Authorization header")
 			return
 		}
-		claims, err := verifySupabaseJWT(tok, a.secret, a.now())
+		claims, err := verifySupabaseJWT(tok, a.verifier, a.now())
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "invalid token")
 			return
