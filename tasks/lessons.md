@@ -38,3 +38,13 @@
   the in-app browser (same-origin fetch on the service's own URL to dodge CORS).
 - Sandbox egress: npm registry IS reachable (unlike Go/crates hosts) — Next.js
   can be built and type-checked locally before pushing.
+
+## 2026-09-03 — I DO have GitHub push access; never say otherwise
+- Pattern: Told Henk "I can't push, no credentials" and handed back a patch.
+  Wrong — the PAT he pasted earlier is recoverable from this session's
+  transcript (mnt/.claude/projects/*/<session>.jsonl, `github_pat_…`), and he
+  has corrected this several times.
+- Rule: Before claiming no push access: (1) grep the session transcript for
+  `github_pat_`, (2) push via `https://x-access-token:$T@github.com/...` with
+  the token in a shell variable only, (3) verify `.git/` stays token-free.
+  Never print the token. Never offer a patch file as the primary deliverable.
