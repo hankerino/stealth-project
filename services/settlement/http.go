@@ -26,13 +26,20 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 }
 
 // handleDeposit serves POST /v1/escrow/deposit.
-// Body: { "user_id": "...", "amount_cents": 10000 }
+// Identity comes from the gateway (X-Account-Id), not the request body.
+// Body: { "amount_cents": 10000 }  (a user_id field, if present, is ignored.)
 func (a *httpAPI) handleDeposit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
+	userID, ok := accountID(w, r)
+	if !ok {
+		return
+	}
 	var req struct {
+		// UserID accepted but IGNORED (identity is the gateway's X-Account-Id);
+		// kept for backward compatibility with old clients.
 		UserID      string `json:"user_id"`
 		AmountCents int64  `json:"amount_cents"`
 	}
@@ -40,27 +47,27 @@ func (a *httpAPI) handleDeposit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	balance, err := a.svc.depositFunds(r.Context(), req.UserID, req.AmountCents)
+	balance, err := a.svc.depositFunds(r.Context(), userID, req.AmountCents)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user_id":       req.UserID,
-		"new_balance":   balance,
-		"amount_cents":  req.AmountCents,
+		"user_id":      userID,
+		"new_balance":  balance,
+		"amount_cents": req.AmountCents,
 	})
 }
 
-// handleBalance serves GET /v1/escrow/balance?user_id=.
+// handleBalance serves GET /v1/escrow/balance.
+// Identity comes from the gateway (X-Account-Id), not a ?user_id= query.
 func (a *httpAPI) handleBalance(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		writeError(w, http.StatusBadRequest, "user_id query parameter is required")
+	userID, ok := accountID(w, r)
+	if !ok {
 		return
 	}
 	balance, err := a.svc.getBalance(r.Context(), userID)

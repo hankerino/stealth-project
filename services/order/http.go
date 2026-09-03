@@ -1,12 +1,28 @@
 package main
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
 )
 
 // REST front for order entry. Routes use the Go 1.22 method+wildcard mux.
+//
+// M1: identity is NO LONGER client-supplied. The API gateway verifies the
+// caller's Supabase JWT and forwards two trusted headers:
+//   - X-Gateway-Secret : proves the request came through the gateway (guards
+//     against this service's public URL being hit directly). Checked against
+//     GATEWAY_SHARED_SECRET; when that env is unset the check is skipped (dev).
+//   - X-Account-Id      : the authenticated account UUID. Replaces the old
+//     client-supplied user_id in the body / ?user_id= query.
+// Any user_id still present in a request body is ignored (backward-compat).
+
+const (
+	headerGatewaySecret = "X-Gateway-Secret"
+	headerAccountID     = "X-Account-Id"
+)
 
 type httpAPI struct {
 	svc *orderService
@@ -22,13 +38,37 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// handleOrders serves POST /v1/orders and GET /v1/orders?user_id=.
+// accountID enforces the gateway trust boundary and returns the authenticated
+// account id. It writes the appropriate error and returns ("", false) if the
+// request is not a valid gateway-forwarded, authenticated call.
+func accountID(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if secret := os.Getenv("GATEWAY_SHARED_SECRET"); secret != "" {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get(headerGatewaySecret)), []byte(secret)) != 1 {
+			writeError(w, http.StatusUnauthorized, "request must come through the API gateway")
+			return "", false
+		}
+	}
+	id := r.Header.Get(headerAccountID)
+	if id == "" {
+		writeError(w, http.StatusUnauthorized, "missing account identity")
+		return "", false
+	}
+	return id, true
+}
+
+// handleOrders serves POST /v1/orders and GET /v1/orders.
 // A POST with contract_id > 0 is a FUTURES order (margin-checked); otherwise
-// it is a SPOT order on <gpu_type>:<region>.
+// it is a SPOT order on <gpu_type>:<region>. Identity comes from X-Account-Id.
 func (a *httpAPI) handleOrders(w http.ResponseWriter, r *http.Request) {
+	userID, ok := accountID(w, r)
+	if !ok {
+		return
+	}
 	switch r.Method {
 	case http.MethodPost:
 		var req struct {
+			// UserID is accepted but IGNORED (identity comes from the gateway);
+			// kept in the struct for backward compatibility with old clients.
 			UserID      string `json:"user_id"`
 			GPUType     string `json:"gpu_type"`
 			Region      string `json:"region"`
@@ -43,7 +83,7 @@ func (a *httpAPI) handleOrders(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		o, err := a.svc.placeOrder(r.Context(), &OrderInput{
-			UserID:      req.UserID,
+			UserID:      userID,
 			GPUType:     req.GPUType,
 			Region:      req.Region,
 			Side:        req.Side,
@@ -64,11 +104,6 @@ func (a *httpAPI) handleOrders(w http.ResponseWriter, r *http.Request) {
 		// 201 even when only the publish failed: the order is durable.
 		writeJSON(w, http.StatusCreated, o)
 	case http.MethodGet:
-		userID := r.URL.Query().Get("user_id")
-		if userID == "" {
-			writeError(w, http.StatusBadRequest, "user_id query parameter is required")
-			return
-		}
 		orders, err := a.svc.listOrders(r.Context(), userID)
 		if err != nil {
 			writeError(w, http.StatusInternalServerError, "query failed")
@@ -80,18 +115,17 @@ func (a *httpAPI) handleOrders(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleCancel serves DELETE /v1/orders/{id}?user_id=.
+// handleCancel serves DELETE /v1/orders/{id}. Identity comes from X-Account-Id.
 func (a *httpAPI) handleCancel(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	orderID := r.PathValue("id")
-	userID := r.URL.Query().Get("user_id")
-	if userID == "" {
-		writeError(w, http.StatusBadRequest, "user_id query parameter is required")
+	userID, ok := accountID(w, r)
+	if !ok {
 		return
 	}
+	orderID := r.PathValue("id")
 	o, err := a.svc.cancelOrder(r.Context(), userID, orderID)
 	if errors.Is(err, errNotFound) {
 		writeError(w, http.StatusNotFound, "order not found or not cancellable")
