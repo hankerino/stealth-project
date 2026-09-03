@@ -70,6 +70,14 @@ func main() {
 	go dispatcher.Run(ctx)
 	log.Println("outbox dispatcher started (500ms poll)")
 
+	// Project engine OrderUpdated events (fills/cancels/rejects) back onto the
+	// orders table so reads reflect the matched state.
+	if brokers := os.Getenv("KAFKA_BROKERS"); brokers != "" {
+		go newOrderUpdatesConsumer(db, brokers, os.Getenv("KAFKA_TLS_ENABLED") == "true").Run(ctx)
+	} else {
+		log.Print("KAFKA_BROKERS unset; order-updates consumer disabled")
+	}
+
 	// REST front.
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
