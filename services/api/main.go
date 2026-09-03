@@ -46,6 +46,10 @@ func writeJSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
+func writeError(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}
+
 func main() {
 	addr := envOr("LISTEN_ADDR", ":8443")
 
@@ -92,6 +96,9 @@ func main() {
 		mux.HandleFunc("/v1/admin/offload", off.handleOffload)
 		go off.Run(context.Background())
 	}
+
+	// --- M1 auth gateway: JWT verification, RBAC, rate-limit, fan-out. ---
+	registerGateway(mux)
 
 	// TLS is on by default (self-signed cert — the AWS ALB doesn't validate
 	// target certs). API_TLS_ENABLED=false serves plain HTTP instead, for
