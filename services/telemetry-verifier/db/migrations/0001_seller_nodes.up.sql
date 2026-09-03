@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS seller_nodes (
 -- 42703 "column does not exist" on the bare ALTER).
 ALTER TABLE seller_nodes ADD COLUMN IF NOT EXISTS gpu_type_id BIGINT;
 ALTER TABLE seller_nodes ADD COLUMN IF NOT EXISTS region_id TEXT;
+-- status was also missing on the pre-migration Render table; settlement's
+-- executor lookup (sn.status = 'active') failed with 42703 on the first trade.
+ALTER TABLE seller_nodes ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'active';
 ALTER TABLE seller_nodes ALTER COLUMN gpu_type_id TYPE BIGINT USING NULL;
 ALTER TABLE seller_nodes ALTER COLUMN region_id TYPE TEXT USING NULL;
 
