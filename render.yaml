@@ -67,6 +67,10 @@ services:
         value: redpanda-u6mq:9092
       - key: KAFKA_TLS_ENABLED
         value: "false"
+      # M1: reject REST calls that did not come through the API gateway. Must
+      # match cte-api's GATEWAY_SHARED_SECRET. (gRPC front stays private-network.)
+      - key: GATEWAY_SHARED_SECRET
+        sync: false
 
   - type: web
     name: cte-settlement
@@ -90,6 +94,10 @@ services:
         value: redpanda-u6mq:9092
       - key: KAFKA_TLS_ENABLED
         value: "false"
+      # M1: reject escrow REST calls that did not come through the API gateway.
+      # Must match cte-api's GATEWAY_SHARED_SECRET.
+      - key: GATEWAY_SHARED_SECRET
+        sync: false
 
   - type: web
     name: cte-api
@@ -125,6 +133,35 @@ services:
         sync: false
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
+      # --- M1 auth gateway ---
+      # Supabase (dedicated project "stealth-project-auth"). HS256: the gateway
+      # verifies access tokens with the project JWT secret. NOTE: Render env is
+      # NOT auto-synced from this file — set every sync:false secret by hand in
+      # the dashboard (this repo learned that the hard way).
+      - key: SUPABASE_JWT_SECRET
+        sync: false
+      - key: SUPABASE_URL
+        value: https://diviltkcrvxshvfchufd.supabase.co
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      # Stamped on internal calls (X-Gateway-Secret); downstreams reject calls
+      # without it. Must match GATEWAY_SHARED_SECRET on cte-order/cte-settlement.
+      - key: GATEWAY_SHARED_SECRET
+        sync: false
+      # Downstream fan-out targets on Render's private network.
+      - key: ORDER_ADDR
+        value: http://cte-order:8090
+      - key: SETTLEMENT_ADDR
+        value: http://cte-settlement:8083
+      - key: CATALOG_ADDR
+        value: http://cte-catalog:8080
+      - key: MARKETDATA_ADDR
+        value: http://cte-market-data:8081
+      # Per-account rate limit (token bucket).
+      - key: RATE_LIMIT_RPS
+        value: "20"
+      - key: RATE_LIMIT_BURST
+        value: "40"
 
   - type: web
     name: cte-market-data
