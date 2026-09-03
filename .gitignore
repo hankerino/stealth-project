@@ -42,3 +42,6 @@ __pycache__/
 
 # migrate runner binary
 scripts/migrate/migrate
+
+# Claude Code personal overrides
+.claude/settings.local.json
