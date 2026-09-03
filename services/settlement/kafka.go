@@ -63,9 +63,11 @@ type kafkaConsumer struct {
 }
 
 func newKafkaConsumer(brokers string, tlsEnabled bool) (*kafkaConsumer, error) {
+	// Timeout bounds each dial. Do NOT set Dialer.Deadline: it is an absolute
+	// wall-clock instant, so every reconnect after it silently fails and the
+	// consumer wedges (joined the group, never fetches) — seen in prod 2026-09-03.
 	dialer := &kafka.Dialer{
-		Timeout:  10 * time.Second,
-		Deadline: time.Now().Add(30 * time.Second),
+		Timeout: 10 * time.Second,
 	}
 	if tlsEnabled {
 		dialer.TLS = buildTLSConfig()
@@ -77,6 +79,11 @@ func newKafkaConsumer(brokers string, tlsEnabled bool) (*kafkaConsumer, error) {
 		MinBytes: 1,
 		MaxBytes: 10e6,
 		Dialer:   dialer,
+		// Surface reader-internal failures (dial/fetch/rebalance) that would
+		// otherwise be retried silently.
+		ErrorLogger: kafka.LoggerFunc(func(msg string, args ...interface{}) {
+			log.Printf("settlement kafka: "+msg, args...)
+		}),
 		// CommitInterval left at 0: offsets are committed synchronously via
 		// CommitMessages only after a trade is durably settled (below).
 	})
