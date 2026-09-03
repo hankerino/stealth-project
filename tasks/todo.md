@@ -56,11 +56,14 @@ for every service it touches. "Done" = CI green.
       upgrade snippet).
 - [ ] Verify: CI green for index-engine, market-data/api, fix-gateway.
 
-## Phase 4 — Web UI, Compliance & Resale  (branch: phase-4-ui-compliance)
-- [ ] Web (frontend/web/, React+TS+Vite+TanStack Query): Dashboard, Trading View
-      (book depth + price chart + order ticket spot/futures), Market Data (CPI +
-      history). Live via market-data WS. Nginx Dockerfile + k8s + ingress.
-- [ ] Compliance (services/compliance/, Go): surveillance_alerts migration; consume
+## Phase 4 — Web UI, Compliance & Resale
+- [x] Web (frontend/web/, Next.js 15 + TS + Tailwind, deployed on Render as
+      cte-web; branch m2-frontend): Supabase sign-in, Markets grid (live
+      bid/ask/last via market-data WS), Trade view (quote, ticket, tape, my
+      orders + cancel), Portfolio (escrow balance, deposit, orders). Talks to
+      cte-api via same-origin /api/gw rewrite. CI: web-test.yml (tsc + build).
+      Deferred: price chart / CPI history page, futures ticket.
+- [ ] (DEFERRED to fast-follow per Henk 2026-09-03) Compliance (services/compliance/, Go): surveillance_alerts migration; consume
       trades+orders; wash-trading + spoofing/layering rules; emit AlertTriggered;
       Dockerfile + k8s + CI.
 - [ ] Resale: order allows Sell against held position; risk validates held qty;
@@ -69,5 +72,14 @@ for every service it touches. "Done" = CI green.
 
 ---
 
+## M-phases after Phase 4 (MVP product layer, decided 2026-09-03)
+- [x] M1 Auth/accounts — done by desktop agent (e20e309..aeec1ca), verified live.
+- [x] M2 Frontend — this branch.
+- [ ] M3 Real payments (Stripe): escrow deposit via payment link + webhook,
+      seller payouts, in services/settlement.
+
 ## Review (filled in as phases land)
-- pending
+- Phase 2, 3 merged and live on Render. Phase 4 workload loop live.
+- M1: gateway rejects no/garbage token (401), direct service calls without
+  gateway secret (401), public catalog 200. Supabase schema complete; JWT
+  claims hook enablement (dashboard toggle) still unconfirmed.
