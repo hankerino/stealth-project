@@ -17,7 +17,7 @@ jobs:
     name: gitleaks (secret scan, full history)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with: { fetch-depth: 0 }
       - uses: gitleaks/gitleaks-action@v2
         env:
@@ -31,7 +31,7 @@ jobs:
       matrix:
         svc: [api, catalog, settlement, compliance, node-agent]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-go@v5
         with: { go-version: "stable" }
       - run: go install golang.org/x/vuln/cmd/govulncheck@latest
@@ -46,7 +46,7 @@ jobs:
       matrix:
         svc: [fix-gateway, telemetry-verifier, market-data, matching-engine]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo install cargo-audit --locked
       # RUSTSEC-2023-0071: `rsa` (Marvin timing side-channel) reaches us only via
@@ -58,7 +58,7 @@ jobs:
     name: npm audit (web)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v4
         with: { node-version: "22" }
       - run: npm ci
@@ -70,7 +70,7 @@ jobs:
     name: pip-audit (index-engine)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install pip-audit && pip-audit -r services/index-engine/requirements.txt
