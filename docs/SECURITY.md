@@ -43,20 +43,34 @@ today, and what is still missing before real money or outside users.
   govulncheck, cargo-audit, npm audit, pip-audit weekly and on every push;
   Dependabot for all ecosystems.
 
-## Gaps — do before real money / external users
+## Pass 2 (2026-09-04) — done
+
+- MFA: Supabase TOTP enrolment at `/settings/security`; the gateway's
+  `requireMFA()` returns 403 `mfa_required` unless the JWT carries `aal=aal2`.
+  Applied to escrow deposit/withdraw, admin payout + alert actions, and catalog
+  mutations. The web app shows an inline TOTP challenge and retries.
+- Withdrawal controls: max $5,000 per payout, $10,000 rolling-24h cap, one
+  open payout at a time (409 on breach; pinned by `withdraw_test.go`).
+- Audit log: `audit_log` table written by the gateway for every non-GET or
+  admin request (account, role, aal, method, path, status, ip, UA, duration).
+- Per-seller registration tokens in the verifier (`srt_…`, sha256 stored,
+  revocable, seller-bound; admin endpoints gated by `X-Admin-Token`). The demo
+  node runs on its own token; the platform-wide `REGISTRATION_TOKEN` is unset.
+- CI now covers telemetry-verifier and market-data; Dependabot PRs with green
+  CI merged.
+
+## Gaps — remaining
 
 | # | Gap | Fix | Effort |
 |---|-----|-----|--------|
-| 1 | No MFA. | Supabase TOTP; require for admin and for withdrawals. | S |
-| 2 | Withdrawals have no cooling-off, limits, confirmation email or saved payout destination. | 24 h hold on first payout to a new destination; daily cap; email confirm; admin 4-eyes above a threshold. | M |
-| 3 | `cte-order`, `cte-catalog`, `cte-market-data`, `cte-settlement` still have public `onrender.com` URLs (shared-secret protected). | Recreate order + catalog as private services (needs a maintenance window: Render cannot change type in place). Settlement must stay public for the Stripe webhook; market-data for the browser WS. | M |
-| 4 | No WAF / bot filtering / DDoS beyond Render's defaults. | Cloudflare in front of exchange.hqube.co (proxy the CNAME, WAF managed rules, bot fight mode, rate limits). | S–M |
-| 5 | Two admin accounts; no session/device list; no login alerts. | Single hardened admin with MFA; login-notification email; session revocation UI. | M |
-| 6 | One platform-wide `REGISTRATION_TOKEN` for sellers. | Per-seller tokens with revocation in the verifier. | M |
-| 7 | No immutable audit trail of admin actions (KYB flips, credits, payouts). | `audit_log` table written by the gateway for every admin/mutating call; alert on large withdrawals / new-device withdrawals. | M |
-| 8 | Test-mode secrets were pasted in chat during setup. | Rotate Stripe test keys and the registration token before launch. | S |
-| 9 | CSP still allows `'unsafe-inline'` scripts (Next hydration). | Nonce-based CSP via middleware. | S |
-| 10 | Held allocations never expire; funds can stay locked indefinitely. | Expiry + refund policy. | M |
+| 1 | `cte-order`, `cte-catalog` still have public `onrender.com` URLs (shared-secret protected). | Recreate as private services in a maintenance window (Render cannot change type in place). Settlement stays public for the Stripe webhook; market-data for the browser WS. | M |
+| 2 | No WAF / bot filtering / DDoS beyond Render's defaults. | Cloudflare in front of exchange.hqube.co (needs hqube.co nameservers moved to Cloudflare — Henk's call). | S–M |
+| 3 | Two admin accounts; no session/device list; no login alerts. | Single hardened admin with MFA enrolled; login-notification email; session revocation UI. | M |
+| 4 | Test-mode secrets were pasted in chat during setup. | Rotate Stripe test keys before launch (live keys were never pasted). | S |
+| 5 | CSP still allows `'unsafe-inline'` scripts (Next hydration). | Nonce-based CSP via proxy.ts. | S |
+| 6 | Held allocations never expire; funds can stay locked indefinitely. | Expiry + refund policy. | M |
+| 7 | Withdrawals lack cooling-off on new destinations, email confirmation and admin 4-eyes above a threshold. | 24 h hold on first payout to a new destination; email confirm; dual approval > $2,500. | M |
+| 8 | GitHub repo `hankerino/stealth-project` is public. | Make private (Settings → Danger zone) unless intentionally open-source. | S |
 
 ## Operating rules
 

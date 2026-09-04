@@ -121,10 +121,13 @@ for every service it touches. "Done" = CI green.
       frame/referrer/permissions headers on cte-web; gitleaks + govulncheck +
       cargo-audit + npm-audit + pip-audit workflow; Dependabot; Go 1.22→1.26,
       Next 15→16 (postcss advisories). docs/SECURITY.md has the gap table.
-- [ ] Security pass 2: MFA (admin + withdrawals), withdrawal controls, private
-      order/catalog services (maintenance window), Cloudflare WAF, admin audit
-      log, per-seller registration tokens, nonce CSP. Triage Dependabot PRs
-      (22 opened; majors like typescript 7 need review, do not auto-merge).
+- [x] Security pass 2 (2026-09-04): MFA gate (TOTP, aal2) on withdrawals +
+      admin actions; withdrawal limits ($5k/payout, $10k/24h, one open); gateway
+      audit_log; per-seller registration tokens (demo node switched, platform
+      token unset); verifier + market-data CI; 11 Dependabot PRs merged.
+      Remaining gaps in docs/SECURITY.md: private order/catalog (maintenance
+      window), Cloudflare WAF (nameserver move — Henk), nonce CSP, allocation
+      expiry, single admin, rotate test keys, make repo private.
 
 ## Next (after 2026-09-04, round 2)
 - [x] Deferred execution: buy → held → run or resell (settlement allocations.go,
