@@ -2,11 +2,29 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, symbolFor, type GpuType, type Region } from "@/lib/api";
+import { api, symbolFor, type FuturesContract, type GpuType, type Region } from "@/lib/api";
 import { Card, ErrorBanner } from "./ui";
 import { useMarketData } from "@/lib/use-market-data";
 import { cents } from "@/lib/format";
 import { IndexChart } from "./price-chart";
+
+function FuturesTile({ c }: { c: FuturesContract }) {
+  const { quote, status } = useMarketData(c.symbol);
+  return (
+    <Link href={`/trade/${encodeURIComponent(c.symbol)}`} className="block rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 hover:border-sky-700">
+      <div className="flex items-baseline justify-between">
+        <span className="font-mono text-sm">{c.symbol}</span>
+        <span className={`text-[10px] uppercase ${status === "live" ? "text-emerald-400" : "text-zinc-500"}`}>{status}</span>
+      </div>
+      <div className="mt-1 text-xs text-zinc-400">Delivery {c.delivery_date} · {c.contract_size} GPU-h/contract · tick {cents(c.tick_size)}</div>
+      <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
+        <div><div className="text-zinc-500">Bid</div><div className="text-emerald-300">{cents(quote?.best_bid_price_cents)}</div></div>
+        <div><div className="text-zinc-500">Ask</div><div className="text-red-300">{cents(quote?.best_ask_price_cents)}</div></div>
+        <div><div className="text-zinc-500">Last</div><div>{cents(quote?.last_trade_price_cents)}</div></div>
+      </div>
+    </Link>
+  );
+}
 
 function Tile({ gpu, region }: { gpu: GpuType; region: Region }) {
   const sym = symbolFor(gpu.name, region.code);
@@ -30,6 +48,7 @@ function Tile({ gpu, region }: { gpu: GpuType; region: Region }) {
 export function Markets() {
   const [gpus, setGpus] = useState<GpuType[]>([]);
   const [regions, setRegions] = useState<Region[]>([]);
+  const [futures, setFutures] = useState<FuturesContract[]>([]);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -39,6 +58,7 @@ export function Markets() {
         setRegions(r ?? []);
       })
       .catch((e) => setError(e.message));
+    api<FuturesContract[]>("/v1/futures-contracts").then((f) => setFutures(f ?? [])).catch(() => setFutures([]));
   }, []);
 
   return (
@@ -52,6 +72,15 @@ export function Markets() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {gpus.flatMap((g) => regions.map((r) => <Tile key={`${g.id}-${r.code}`} gpu={g} region={r} />))}
       </div>
+      {futures.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold">Forward contracts</h2>
+          <p className="text-sm text-zinc-400">Fixed-delivery GPU-hour contracts. Price per GPU-hour; margin held from escrow (10% initial by default).</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {futures.map((c) => <FuturesTile key={c.id} c={c} />)}
+          </div>
+        </div>
+      )}
       {gpus.length > 0 && <IndexChart gpuTypes={gpus.map((g) => g.name)} />}
     </div>
   );

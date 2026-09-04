@@ -39,6 +39,17 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export type GpuType = { id: number; name: string; vram_gb: number };
 export type Region = { code: string; name: string };
+export type FuturesContract = {
+  id: number;
+  gpu_type_id: number;
+  region_code: string;
+  delivery_date: string;
+  tick_size: number;
+  contract_size: number;
+  status: string;
+  symbol: string;
+};
+export const isFuturesSymbol = (sym: string) => sym.includes(":FUT:");
 
 export type Order = {
   id: string;

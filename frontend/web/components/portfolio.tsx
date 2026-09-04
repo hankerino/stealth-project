@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { accountRole, api, ApiError, type Balance, type EscrowHistory, type Order } from "@/lib/api";
+import { accountRole, api, ApiError, type Balance, type EscrowHistory, type Order, type Position } from "@/lib/api";
 import { cents } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner } from "./ui";
 import { OrdersTable } from "./orders-table";
@@ -13,6 +13,7 @@ export function Portfolio() {
   const [balance, setBalance] = useState<Balance | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [history, setHistory] = useState<EscrowHistory | null>(null);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [role, setRole] = useState("");
   const [unverified, setUnverified] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,6 +30,7 @@ export function Portfolio() {
       setOrders(o ?? []);
       setHistory(h);
       setUnverified(false);
+      api<Position[]>("/v1/positions").then((p) => setPositions((p ?? []).filter((x) => x.contract_id !== 0))).catch(() => setPositions([]));
       setError(null);
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) setUnverified(true);
@@ -79,6 +81,23 @@ export function Portfolio() {
       {role === "admin" && <AdminFunds onChanged={refresh} />}
       {role === "admin" && <SurveillanceAlerts />}
       <Holdings refreshKey={orders} />
+      {positions.length > 0 && (
+        <Card title="Forward positions">
+          <table className="w-full text-sm">
+            <thead className="text-left text-xs text-zinc-500"><tr><th>Contract</th><th className="text-right">Net</th><th className="text-right">Avg entry</th><th className="text-right">Margin posted</th></tr></thead>
+            <tbody>
+              {positions.map((p) => (
+                <tr key={p.symbol} className="border-t border-zinc-800/60">
+                  <td className="font-mono">{p.symbol}</td>
+                  <td className={`text-right ${p.net_quantity > 0 ? "text-emerald-300" : "text-red-300"}`}>{p.net_quantity > 0 ? "+" : ""}{p.net_quantity}</td>
+                  <td className="text-right text-zinc-400">{cents(p.avg_entry_price_cents)}</td>
+                  <td className="text-right text-zinc-400">{cents(p.margin_posted_cents)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
       <Card title="Deposits & payouts"><FundsHistory history={history} /></Card>
       <Card title={`Open orders (${open.length})`}><OrdersTable orders={open} onChanged={refresh} showSymbol /></Card>
       <Card title="Order history"><OrdersTable orders={orders} onChanged={refresh} showSymbol /></Card>
