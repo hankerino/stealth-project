@@ -83,8 +83,8 @@ already in the environment.
   simpler, run the FIX gateway itself on that VPS pointed at cte-order's
   gRPC; (b) Cloudflare Spectrum (paid) in front of that relay for TLS +
   DDoS; (c) the AWS NLB path in `infra/terraform` once funded. Relay kit +
-  runbook: `infra/fix-edge/`. Batch 3b (order forwarding + ExecutionReports)
-  must land before any of these.
+  runbook: `infra/fix-edge/`. Batch 3b (order forwarding + ExecutionReports) shipped 2026-09-04;
+  set `FIX_CLIENTS` + `GATEWAY_SHARED_SECRET` on fix-gateway.
 - **`numInstances` must stay 1** on matching-engine and index-engine.
 
 ## Not hosted / stays off Render
@@ -116,6 +116,7 @@ only these are dashboard/API-managed. Audit 2026-09-04:
 | cte-web | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | set |
 | cte-telemetry-verifier, cte-node-agent | `REGISTRATION_TOKEN` | set (same value on both) |
 | cte-node-agent | `SELLER_ID` | set (founder account) |
+| fix-gateway | `GATEWAY_SHARED_SECRET`, `FIX_CLIENTS` | set 2026-09-04 (secret rotated everywhere via API) |
 | cte-risk, cte-compliance | `GATEWAY_SHARED_SECRET` | **unset** — the check is skipped; acceptable only because both are private services with no public URL. Set it (same value as cte-api) if either ever becomes `type: web`. |
 
 ## Known open items (unchanged by this blueprint)

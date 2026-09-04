@@ -12,6 +12,10 @@ path = "src/lib.rs"
 name = "fix-gateway"
 path = "src/main.rs"
 
-# Batch 3a is dependency-free (std only): the FIX codec + session + a threaded
-# TCP server. Batch 3b adds tonic (gRPC to order) and rdkafka (ExecutionReports).
+# Batch 3a is std only: the FIX codec + session + a threaded TCP server.
+# Batch 3b bridges sessions to the order service over its private-network
+# REST (blocking ureq, no TLS needed) and polls order state for
+# ExecutionReports — deliberately no gRPC/Kafka so the image stays small.
 [dependencies]
+ureq = { version = "2.10", default-features = false, features = ["json"] }
+serde_json = "1"

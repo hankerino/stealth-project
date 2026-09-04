@@ -426,6 +426,18 @@ services:
         value: "0.0.0.0:9878"
       - key: FIX_SENDER_COMP_ID
         value: CTE
+      # Batch 3b: orders go to cte-order's REST front with the gateway trust
+      # headers; the FIX logon (CompID + Password 554) maps to an account.
+      - key: ORDER_ADDR
+        value: http://cte-order:8090
+      - key: CATALOG_ADDR
+        value: http://cte-catalog:8080
+      - key: FIX_POLL_SECS
+        value: "2"
+      - key: GATEWAY_SHARED_SECRET
+        sync: false
+      - key: FIX_CLIENTS
+        sync: false # "COMPID:password:account-uuid;..." — one entry per institutional client
 
   # Kafka stand-in: Render has no managed Kafka. Single-node redpanda with a
   # persistent disk, plaintext on the private network only. RAM-hungry even

@@ -34,12 +34,23 @@ cp haproxy.cfg /etc/haproxy/haproxy.cfg && systemctl restart haproxy
 Client connects to `fix.<domain>:9878` with TLS; SenderCompID/TargetCompID
 per `services/fix-gateway` (TargetCompID `CTE`).
 
-## Status — read before promising a client anything
+## What the gateway does (batch 3a + 3b)
 
-`fix-gateway` implements **batch 3a only**: session transport (logon,
-heartbeat, test request, logout) and parsing of NewOrderSingle /
-OrderCancelRequest. **Batch 3b — forwarding orders to the order service and
-pushing ExecutionReports from trades/order-updates — is not implemented.**
-Until 3b lands, an exposed FIX session will log on and heartbeat but no
-order will reach the book. Do the exposure work when 3b is scheduled, not
-before.
+- Logon (35=A) is authenticated: SenderCompID(49) + Password(554) must
+  match an entry in `FIX_CLIENTS` (`COMPID:password:account-uuid;...`),
+  which maps the session to an exchange account. Anything else gets a
+  Logout with `58=logon refused`.
+- NewOrderSingle (35=D) → `POST /v1/orders` on cte-order (spot `GPU:region`
+  symbols; futures symbols resolve to `contract_id` via the catalog).
+  ExecutionReport New (150=0) with OrderID(37), or Rejected (150=8) with
+  the service's reason in Text(58) — e.g. `402: margin check failed:
+  INSUFFICIENT_HELD_QUANTITY`.
+- OrderCancelRequest (35=F) by OrigClOrdID → `DELETE /v1/orders/{id}` →
+  ExecutionReport Canceled (150=4) or Rejected.
+- Fills / expiry / engine cancels: the session polls `GET /v1/orders`
+  every `FIX_POLL_SECS` and emits Trade (150=F, 39=1|2), Expired (C),
+  Canceled (4). Prices are integer cents in 44/31 (MVP convention).
+- The gateway sends Heartbeats (35=0) at the negotiated HeartBtInt.
+
+Not yet: sequence-number resend/gap fill (34 is reset per connection),
+OrderCancelReject (35=9) — unknown cancels come back as Rejected ERs.
