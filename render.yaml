@@ -258,16 +258,19 @@ services:
       - key: RUST_LOG
         value: info
 
-  - type: worker
+  - type: web
     name: cte-telemetry-verifier
     runtime: docker
     dockerfilePath: services/telemetry-verifier/Dockerfile
     dockerContext: services/telemetry-verifier
     plan: starter
-    # NOTE: as a worker its HTTP control plane (:8082 registration/heartbeat)
-    # has no public ingress — external seller node-agents cannot register
-    # until this is flipped to type: web (docs/RENDER.md).
+    healthCheckPath: /healthz
+    # Public so seller node-agents can register/heartbeat (:8082). Was a
+    # worker (no ingress) until the first seller node (cte-node-agent below).
+    # Registration is gated by REGISTRATION_TOKEN; heartbeats are Ed25519-signed.
     envVars:
+      - key: PORT
+        value: "8082"
       - key: LISTEN_ADDR
         value: ":8082"
       - key: DATABASE_URL
@@ -287,6 +290,40 @@ services:
         sync: false # set in the Render dashboard — never commit a value
       - key: RUST_LOG
         value: info
+
+  # Demo seller node (closed beta): a fake-GPU H100 node-agent with the mock
+  # executor, so H100 trades find capacity and SETTLE instead of failing
+  # NO_CAPACITY. Registers itself against the verifier on boot (ephemeral
+  # disk => one fresh seller_nodes row per deploy; settlement picks the
+  # newest active node). Real sellers run this binary on their own hardware
+  # (docs/RENDER.md). Remove when a real H100 seller is onboarded.
+  - type: worker
+    name: cte-node-agent
+    runtime: docker
+    dockerfilePath: services/node-agent/Dockerfile
+    dockerContext: services/node-agent
+    plan: starter
+    numInstances: 1
+    envVars:
+      - key: MODE
+        value: prometheus # no telemetry edge on Render; metrics stay local
+      - key: AGENT_FAKE_GPU
+        value: "1" # collector reports FakeGPU-H100 -> gpu_types H100
+      - key: EXECUTOR_MODE
+        value: mock
+      - key: KEY_PATH
+        value: /tmp/exchange-agent/key.pem # distroless nonroot: /etc is read-only
+      - key: STATE_PATH
+        value: /tmp/exchange-agent/state.json
+      - key: VERIFIER_URL
+        value: https://cte-telemetry-verifier.onrender.com
+      - key: JOBS_URL
+        value: https://cte-settlement.onrender.com
+      # Account (UUID) that owns the demo node; must match cte-telemetry-verifier's token.
+      - key: SELLER_ID
+        sync: false
+      - key: REGISTRATION_TOKEN
+        sync: false
 
   - type: worker
     name: cte-index-engine

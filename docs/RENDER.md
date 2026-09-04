@@ -16,7 +16,8 @@ terminates TLS and proxies HTTP, which fits Render, not serverless).
 | `cte-api` (web, Go) | `services/api` | `/healthz`; plain HTTP via `API_TLS_ENABLED=false` |
 | `cte-market-data` (web, docker) | `services/market-data/Dockerfile` | WebSocket fan-out; no health route (TCP check) |
 | `cte-matching-engine` (worker, docker) | `services/matching-engine/Dockerfile` | `numInstances: 1` — single-writer book, never scale without symbol sharding |
-| `cte-telemetry-verifier` (worker, docker) | `services/telemetry-verifier/Dockerfile` | SLA engine; HTTP control plane not public (see caveats) |
+| `cte-telemetry-verifier` (web, docker) | `services/telemetry-verifier/Dockerfile` | SLA engine + public node registration/heartbeat API (`:8082`, token-gated) |
+| `cte-node-agent` (worker, docker) | `services/node-agent/Dockerfile` | Demo seller node: fake H100 + mock executor so H100 trades settle. Remove once a real seller is onboarded |
 | `cte-index-engine` (worker, Python) | `services/index-engine` | `numInstances: 1` singleton consumer; Compute Price Index → `market-data` topic + Redis |
 | `fix-gateway` (private service, docker) | `services/fix-gateway/Dockerfile` | FIX 4.4 TCP at `fix-gateway:9878`, internal only |
 | `redpanda` (private service, image) | `docker.redpanda.com/redpandadata/redpanda` | Kafka stand-in, 10 GB disk, `:9092` plaintext internal |
@@ -68,11 +69,10 @@ already in the environment.
   TLS-terminating proxy; its `/healthz` health check is enabled. The
   service's default stays self-signed HTTPS (the AWS ALB path) — local dev
   is unchanged.
-- **`cte-telemetry-verifier` is a worker.** Its registration/heartbeat API
-  (`:8082`) then has no public ingress — seller node-agents on external
-  hardware cannot register. Flip it to `type: web` with
-  `healthCheckPath: /healthz` (both exist in the code) when real sellers
-  connect.
+- **`cte-telemetry-verifier` is public** (`type: web`) so node-agents can
+  register (`REGISTRATION_TOKEN`) and heartbeat (signed). Render cannot
+  change a service's type in place: the original worker was replaced by a
+  new web service of the same name (2026-09-04).
 - **`fix-gateway` is private-only.** External FIX sessions need a deliberate
   public exposure step (and batch 3b wiring) first.
 - **`numInstances` must stay 1** on matching-engine and index-engine.
@@ -81,7 +81,11 @@ already in the environment.
 
 - **`services/node-agent`** — runs on seller GPU hardware, not on our
   platform. Sellers build it from this repo (`go build` / the agent CI
-  workflow) and point `VERIFIER_URL` at the verifier once it is public.
+  workflow) and point `VERIFIER_URL` at
+  `https://cte-telemetry-verifier.onrender.com`, `JOBS_URL` at
+  `https://cte-settlement.onrender.com`. The one exception is
+  `cte-node-agent`, a fake-GPU demo node hosted here so the closed beta has
+  H100 capacity.
 - **AWS/Terraform layers** (`infra/terraform`) — remain the funded production
   path (`docs/ALTERNATIVE_STACK.md`); the Render blueprint replaces the same
   dev stack only.
