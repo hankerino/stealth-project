@@ -109,9 +109,11 @@ managed cert). DNS: CNAME `exchange` → `cte-web.onrender.com` at Hostinger
 (hqube.co is an external domain there; the site itself is WordPress on
 Hostinger). Moved from `cte-api` on 2026-09-04 — the gateway is only reached
 via the web app's same-origin `/api/gw` proxy. `PUBLIC_WEB_URL` on
-cte-settlement points here (Stripe return URLs). Supabase Auth: Site URL +
-redirect `https://exchange.hqube.co/auth/callback` must be listed
-(dashboard → Authentication → URL Configuration).
+cte-settlement points here (Stripe return URLs). Supabase Auth (shared pool
+`szaxkuxpcasugvprapsq`): redirect allow-list has `https://exchange.hqube.co/**`
+and `https://cte-web.onrender.com/**` — the `/**` form matters, `/*` does not
+match `/auth/callback?next=…` and Supabase then silently redirects to the site
+root (the web middleware forwards a stray `?code=` to /auth/callback anyway).
 
 ## Secrets (sync: false) — what must be set by hand, and where
 
@@ -120,13 +122,13 @@ only these are dashboard/API-managed. Audit 2026-09-04:
 
 | Service | Secret | State |
 |---|---|---|
-| cte-api | `SUPABASE_JWT_SECRET`, `SUPABASE_ANON_KEY`, `GATEWAY_SHARED_SECRET`, `ADMIN_TOKEN` | set (live auth works) |
+| cte-api | `SUPABASE_JWT_SECRET` (shared pool's legacy HS256 secret), `SUPABASE_ANON_KEY`, `GATEWAY_SHARED_SECRET`, `ADMIN_TOKEN` | set (live auth works; pool = szaxkuxpcasugvprapsq since 2026-09-04) |
 | cte-api | `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | unset — offloader disabled by design |
 | cte-order, cte-settlement, cte-catalog | `GATEWAY_SHARED_SECRET` | set (direct calls 401) |
 | cte-settlement | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | set (test mode; $25 card deposit verified) |
-| cte-web | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | set |
+| cte-web | `NEXT_PUBLIC_SUPABASE_ANON_KEY` (shared pool) | set |
 | cte-telemetry-verifier, cte-node-agent | `REGISTRATION_TOKEN` | set (same value on both) |
-| cte-node-agent | `SELLER_ID` | set (founder account) |
+| cte-node-agent | `SELLER_ID` | set (founder = hankquin@gmail.com in the shared pool, `af826a27…`) |
 | fix-gateway | `GATEWAY_SHARED_SECRET`, `FIX_CLIENTS` | set 2026-09-04 (secret rotated everywhere via API) |
 | cte-risk, cte-compliance | `GATEWAY_SHARED_SECRET` | **unset** — the check is skipped; acceptable only because both are private services with no public URL. Set it (same value as cte-api) if either ever becomes `type: web`. |
 

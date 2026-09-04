@@ -103,6 +103,21 @@ for every service it touches. "Done" = CI green.
         Card path returns 503 + UI notice until Stripe keys are set.
   - [x] 4242 card -> Checkout -> webhook -> $25 credited (305 -> 330), 2026-09-04.
 
+## Round 3 (2026-09-04 evening) — frontend + hqube.co
+- [x] exchange.hqube.co (Render custom domain moved cte-api → cte-web, Hostinger
+      CNAME, PUBLIC_WEB_URL). hqube.co: Products → Exchange menu item; home page
+      hero + 5th product card (Elementor widget 5343aa5d, page 972).
+- [x] Brand pass: hQube Exchange, landing page, Outfit, navy/green, favicon.
+- [x] Auth unification: Exchange uses the SHARED hQube identity pool
+      (szaxkuxpcasugvprapsq): schema `exchange.accounts` + trigger + JWT hook
+      `public.exchange_access_token_hook` (enabled), HS256 secret on cte-api,
+      magic-link login (same flow as hqube.co/account), Account page card.
+      Verified live: magic link → /auth/callback → session → gateway 200 with
+      admin claims → $330 admin credit. Founder id is now af826a27… (SELLER_ID
+      updated; demo node re-registered). stealth-project-auth project retired
+      (not deleted). Old test data keyed by d9134632… stays as orphan history.
+- [ ] Delete the stealth-project-auth Supabase project once nothing references it.
+
 ## Next (after 2026-09-04, round 2)
 - [x] Deferred execution: buy → held → run or resell (settlement allocations.go,
       migration 0005; risk sell rule on held jobs; Allocations card). Live:

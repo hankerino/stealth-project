@@ -86,3 +86,27 @@
 - Pattern: empty .git objects after the Mac hit 276 MB free. Remote was fine.
 - Rule: if git errors mention empty/corrupt objects, save the working-tree
   diff, re-clone, re-apply; don't try to repair the object store.
+
+## 2026-09-04 — Supabase redirect allow-list globs and proxied redirects
+- Pattern: `https://host/*` does NOT match `/auth/callback?next=…` (single `*`
+  stops at `/` and `?`); Supabase then silently redirects to the site root and
+  the PKCE code is never exchanged. And `NextResponse.redirect(new URL(x, req.url))`
+  in a route handler behind Render's proxy sends users to localhost:10000.
+- Rule: allow-list entries end in `/**`; build post-auth redirects from
+  `x-forwarded-host`/`x-forwarded-proto`; have middleware forward any stray
+  `?code=` to the callback. Test the whole magic-link loop yourself (Gmail MCP
+  can read the email) before calling auth done.
+
+## 2026-09-04 — Base64 through the browser tool is lossy; draw or fetch instead
+- Pattern: a PNG pasted as base64 into javascript_tool arrived corrupted (same
+  length, different hash) and rendered as a thin line.
+- Rule: generate assets in the page (canvas) or upload through a form; verify
+  with a hash before wiring the URL anywhere.
+
+## 2026-09-04 — Supabase dashboard renders blank on direct URLs
+- Pattern: direct navigation to dashboard pages often stays blank (innerText 0)
+  for 30-60 s or forever; a fresh tab + waiting ~40 s + client-side navigation
+  (clicking sidebar links / JS `a.click()`) works.
+- Rule: land on one page, wait, then navigate inside the SPA. Supabase MCP
+  covers SQL/migrations/keys; only hooks, URL config and the JWT secret need
+  the dashboard.
