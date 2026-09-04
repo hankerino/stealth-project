@@ -1,0 +1,17 @@
+{
+  "type": "record",
+  "name": "AlertTriggered",
+  "namespace": "cte.events",
+  "doc": "Market-surveillance alert from the compliance service to the `compliance-alerts` topic. Kafka key: user_id.",
+  "fields": [
+    {"name": "event_id", "type": "string"},
+    {"name": "alert_id", "type": "string"},
+    {"name": "rule", "type": {"type": "enum", "name": "SurveillanceRule", "symbols": ["WASH_TRADE", "SPOOFING"]}},
+    {"name": "severity", "type": "string", "doc": "low | medium | high"},
+    {"name": "user_id", "type": "string"},
+    {"name": "symbol", "type": "string"},
+    {"name": "ref_id", "type": ["null", "string"], "default": null, "doc": "trade_id or order_id that triggered the rule"},
+    {"name": "details", "type": "string", "doc": "JSON object with rule-specific evidence"},
+    {"name": "occurred_at_unix_ms", "type": "long"}
+  ]
+}
