@@ -10,7 +10,9 @@ import Link from "next/link";
 function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
-  const [mode, setMode] = useState<"signin" | "signup">(params.get("mode") === "signup" ? "signup" : "signin");
+  // "link" = passwordless magic link (the same flow as hqube.co/account, so one
+  // hQube account works everywhere); "signin"/"signup" = email + password.
+  const [mode, setMode] = useState<"link" | "signin" | "signup">(params.get("mode") === "signup" ? "signup" : params.get("mode") === "password" ? "signin" : "link");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -24,6 +26,15 @@ function LoginForm() {
     setNotice(null);
     const sb = supabaseBrowser();
     try {
+      if (mode === "link") {
+        const { error } = await sb.auth.signInWithOtp({
+          email,
+          options: { emailRedirectTo: `${location.origin}/auth/callback?next=${encodeURIComponent(params.get("next") || "/")}` },
+        });
+        if (error) throw error;
+        setNotice("Check your email — the link signs you in (and creates your hQube account if you're new).");
+        return;
+      }
       if (mode === "signup") {
         const { data, error } = await sb.auth.signUp({
           email,
@@ -51,19 +62,35 @@ function LoginForm() {
   return (
     <form onSubmit={submit} className="w-full max-w-sm space-y-4 rounded-lg border border-white/10 bg-white/[0.03] p-6">
       <div>
-        <h1 className="text-lg font-semibold">{mode === "signin" ? "Sign in" : "Create your account"}</h1>
-        <p className="text-sm text-zinc-400">{mode === "signin" ? "Trade GPU compute hours." : "Verification (KYB) is completed by our team before trading unlocks."}</p>
+        <h1 className="text-lg font-semibold">{mode === "link" ? "Sign in or create your account" : mode === "signin" ? "Sign in with a password" : "Create your account"}</h1>
+        <p className="text-sm text-zinc-400">
+          {mode === "link"
+            ? "Your hQube account works here too. We'll email you a secure link — no password needed."
+            : "Verification (KYB) is completed by our team before trading unlocks."}
+        </p>
       </div>
       <input className={inputCls} type="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} required autoComplete="email" />
-      <input className={inputCls} type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete={mode === "signin" ? "current-password" : "new-password"} />
+      {mode !== "link" && (
+        <input className={inputCls} type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} autoComplete={mode === "signin" ? "current-password" : "new-password"} />
+      )}
       <ErrorBanner error={error} />
       {notice && <p className="text-sm text-emerald-300">{notice}</p>}
       <button className={`${btnCls} w-full bg-brand text-navy-deep hover:bg-brand-dark hover:text-white`} disabled={busy}>
-        {busy ? "…" : mode === "signin" ? "Sign in" : "Sign up"}
+        {busy ? "…" : mode === "link" ? "Email me a sign-in link" : mode === "signin" ? "Sign in" : "Sign up"}
       </button>
-      <button type="button" className="w-full text-xs text-zinc-400 hover:text-white" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
-        {mode === "signin" ? "New here? Create an account" : "Have an account? Sign in"}
-      </button>
+      <div className="flex justify-between text-xs text-zinc-400">
+        {mode === "link" ? (
+          <button type="button" className="hover:text-white" onClick={() => setMode("signin")}>Use a password instead</button>
+        ) : (
+          <button type="button" className="hover:text-white" onClick={() => setMode("link")}>Email me a link instead</button>
+        )}
+        {mode !== "link" && (
+          <button type="button" className="hover:text-white" onClick={() => setMode(mode === "signin" ? "signup" : "signin")}>
+            {mode === "signin" ? "Create a password account" : "Have a password? Sign in"}
+          </button>
+        )}
+      </div>
+      <p className="text-center text-xs text-zinc-500">Same account as <a href="https://api.hqube.co/account" className="underline hover:text-zinc-300">hqube.co/account</a>.</p>
     </form>
   );
 }

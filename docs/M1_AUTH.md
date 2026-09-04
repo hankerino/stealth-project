@@ -23,15 +23,38 @@ Downstream columns stay `TEXT`; they now hold the Supabase `auth.uid()` UUID
 
 ## Supabase project
 
-Dedicated project **stealth-project-auth** (`diviltkcrvxshvfchufd`,
-eu-central-1) — separate from the shared identity pool. Schema:
-`public.accounts` (`role` buyer/seller/trader/admin, `verified` manual-KYB flag),
-an insert trigger that provisions a row per new `auth.users`, RLS (owner reads
-own; role/verified changed only via the service-role key), and a
-`custom_access_token_hook` that injects `account_role` + `account_verified` into
-the JWT so the gateway needs no per-request DB call.
+**Since 2026-09-04 the Exchange uses the SHARED hQube identity pool** —
+project "Jizoni Project Controls" (`szaxkuxpcasugvprapsq`, eu-central-1), the
+same `auth.users` as Jizoni, GARD and hqube.co/account. One email = one hQube
+account everywhere; the Exchange login offers the same magic-link flow as the
+Account page (password sign-in remains for accounts that set one).
 
-## JWT verification (ES256 / JWKS)
+Exchange-specific state lives in its own schema there so nothing collides with
+Jizoni's `public.*`: `exchange.accounts` (`role` buyer/seller/trader/admin,
+`verified` manual-KYB flag), trigger `on_auth_user_created_exchange` that
+provisions a row per new `auth.users` (existing users back-filled), RLS (owner
+reads own; role/verified changed only via the service role), and the JWT hook
+`public.exchange_access_token_hook` (enabled in Auth → Hooks) that injects
+`account_role` + `account_verified` so the gateway needs no per-request DB
+call. Jizoni/GARD tokens carry the two extra claims harmlessly.
+
+Grant / KYB: `UPDATE exchange.accounts SET role='seller', verified=true WHERE
+id = (SELECT id FROM auth.users WHERE email='…')` via the service role.
+
+The original dedicated project **stealth-project-auth** (`diviltkcrvxshvfchufd`)
+is retired; its `public.accounts` schema is the template the migration above
+mirrored. Test data keyed by its user ids (founder `d9134632…`) stays in the
+exchange DB as orphaned history.
+
+## JWT verification
+
+The shared project still signs with the **legacy HS256 JWT secret** (its JWKS
+endpoint is empty), so `SUPABASE_JWT_SECRET` is set on cte-api and the
+gateway uses HS256. If the project is ever migrated to JWT signing keys
+(Dashboard → JWT Keys), unset the secret and the ES256/JWKS path below takes
+over automatically.
+
+### ES256 / JWKS (when no secret is configured)
 
 This project signs access tokens with an **asymmetric ES256 key**, published at
 `{SUPABASE_URL}/auth/v1/.well-known/jwks.json`. The gateway fetches and caches

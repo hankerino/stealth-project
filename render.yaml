@@ -198,17 +198,18 @@ services:
       - key: AWS_SECRET_ACCESS_KEY
         sync: false
       # --- M1 auth gateway ---
-      # Supabase (dedicated project "stealth-project-auth"). The project signs
-      # access tokens with ES256; the gateway verifies against the public JWKS
-      # at SUPABASE_URL/auth/v1/.well-known/jwks.json — no shared secret needed.
-      # SUPABASE_ANON_KEY is sent as the `apikey` header when fetching the JWKS.
-      # NOTE: Render env is NOT auto-synced from this file — set every sync:false
-      # secret by hand in the dashboard (this repo learned that the hard way).
+      # Supabase: the SHARED hQube identity pool ("Jizoni Project Controls",
+      # szaxkuxpcasugvprapsq) since 2026-09-04 — one account across Jizoni,
+      # GARD and the Exchange. That project still uses the legacy HS256 JWT
+      # secret (empty JWKS), so SUPABASE_JWT_SECRET must be set; the gateway
+      # falls back to ES256/JWKS only when it is unset. Exchange-specific
+      # role/KYB state lives in schema `exchange` there; the JWT hook is
+      # public.exchange_access_token_hook. sync:false secrets are set via the
+      # Render API/dashboard.
       - key: SUPABASE_URL
-        value: https://diviltkcrvxshvfchufd.supabase.co
+        value: https://szaxkuxpcasugvprapsq.supabase.co
       - key: SUPABASE_ANON_KEY
         sync: false
-      # Optional legacy HS256 secret; leave unset for ES256/JWKS (the default).
       - key: SUPABASE_JWT_SECRET
         sync: false
       # Stamped on internal calls (X-Gateway-Secret); downstreams reject calls
@@ -258,7 +259,7 @@ services:
       - key: GATEWAY_URL
         value: https://cte-api-esnd.onrender.com
       - key: NEXT_PUBLIC_SUPABASE_URL
-        value: https://diviltkcrvxshvfchufd.supabase.co
+        value: https://szaxkuxpcasugvprapsq.supabase.co # shared hQube identity pool
       # Public anon key (safe in the browser; RLS enforces access).
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
         sync: false
