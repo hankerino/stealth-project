@@ -60,6 +60,20 @@ export type Order = {
 
 export type Balance = { user_id: string; balance: number };
 
+/** A purchased allocation (settlement job). held = yours to run or resell. */
+export type Allocation = {
+  job_id: string;
+  trade_id: string;
+  symbol: string;
+  node_id: string;
+  quantity: number;
+  status: "held" | "queued" | "running" | "completed" | "failed";
+  status_reason: string | null;
+  workload: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
+
 /** Net GPU-hours per market (risk service). Positive = hours held (resellable),
  *  negative = hours supplied as a node operator. contract_id 0 = spot. */
 export type Position = {

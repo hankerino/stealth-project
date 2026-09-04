@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, splitSymbol, type Order, type Position } from "@/lib/api";
+import { api, ApiError, splitSymbol, type Allocation, type Order } from "@/lib/api";
 import { useMarketData } from "@/lib/use-market-data";
 import { cents, when } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner, btnCls, inputCls } from "./ui";
@@ -21,8 +21,8 @@ export function TradeView({ symbol }: { symbol: string }) {
       const all = await api<Order[]>("/v1/orders");
       setOrders((all ?? []).filter((o) => o.symbol === symbol));
       setUnverified(false);
-      api<Position[]>("/v1/positions")
-        .then((ps) => setHeld((ps ?? []).find((p) => p.symbol === symbol && p.contract_id === 0)?.net_quantity ?? 0))
+      api<Allocation[]>("/v1/allocations")
+        .then((as) => setHeld((as ?? []).filter((a) => a.symbol === symbol && a.status === "held").reduce((n, a) => n + a.quantity, 0)))
         .catch(() => setHeld(null));
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) setUnverified(true);
@@ -161,7 +161,7 @@ function Ticket({ symbol, gpu, region, disabled, onPlaced, held, defaultPrice }:
         {side === "SELL" && held != null && (
           <p className="text-xs text-zinc-500">
             {held > 0
-              ? `You hold ${held} GPU-hour${held === 1 ? "" : "s"} here — sells up to that resell your allocation.`
+              ? `You hold ${held} unrun GPU-hour${held === 1 ? "" : "s"} here — sells up to that resell the allocation; the buyer pays you on fill.`
               : "Sells must be backed by hours you hold or by a registered node."}
           </p>
         )}

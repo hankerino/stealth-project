@@ -109,6 +109,9 @@ func registerGateway(mux *http.ServeMux) {
 	mux.Handle("POST /v1/escrow/withdraw", trading(settlement))
 	mux.Handle("GET /v1/escrow/history", trading(settlement))
 	mux.Handle("GET /v1/escrow/balance", trading(settlement))
+	// Allocations (settlement): held GPU-hours; run them or resell on the book.
+	mux.Handle("GET /v1/allocations", trading(settlement))
+	mux.Handle("POST /v1/jobs/{id}/run", trading(settlement))
 	mux.Handle("GET /v1/admin/payouts", protected(settlement, requireRole("admin")))
 	mux.Handle("POST /v1/admin/payouts/{id}", protected(settlement, requireRole("admin")))
 
