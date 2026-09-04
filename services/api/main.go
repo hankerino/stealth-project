@@ -98,7 +98,7 @@ func main() {
 	}
 
 	// --- M1 auth gateway: JWT verification, RBAC, rate-limit, fan-out. ---
-	registerGateway(mux)
+	registerGateway(mux, newAuditor(db))
 
 	// TLS is on by default (self-signed cert — the AWS ALB doesn't validate
 	// target certs). API_TLS_ENABLED=false serves plain HTTP instead, for

@@ -53,6 +53,9 @@ type Claims struct {
 	NotBefore int64  `json:"nbf"`
 	Role      string `json:"account_role"`
 	Verified  bool   `json:"account_verified"`
+	// Supabase authenticator assurance level: "aal1" (password / magic link)
+	// or "aal2" (a second factor was verified in this session).
+	AAL string `json:"aal"`
 	// Supabase's built-in "role" is always "authenticated" for a signed-in
 	// user; it is NOT our account role. Kept only for completeness.
 	SupabaseRole string `json:"role"`

@@ -6,8 +6,13 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    public code?: string,
   ) {
     super(message);
+  }
+  /** Gateway refused because the session lacks a second factor (aal2). */
+  get mfaRequired() {
+    return this.status === 403 && this.code === "mfa_required";
   }
 }
 
@@ -25,12 +30,15 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await res.text();
   if (!res.ok) {
     let msg = text;
+    let code: string | undefined;
     try {
-      msg = (JSON.parse(text) as { error?: string }).error ?? text;
+      const j = JSON.parse(text) as { error?: string; message?: string };
+      code = j.error;
+      msg = j.message ?? j.error ?? text;
     } catch {
       /* not JSON */
     }
-    throw new ApiError(res.status, msg || res.statusText);
+    throw new ApiError(res.status, msg || res.statusText, code);
   }
   return (text ? JSON.parse(text) : null) as T;
 }

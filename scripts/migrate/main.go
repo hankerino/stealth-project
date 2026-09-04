@@ -31,6 +31,7 @@ var migrationDirs = []string{
 	"services/settlement/db/migrations",
 	"services/risk/db/migrations",
 	"services/compliance/db/migrations",
+	"services/api/db/migrations",
 	"services/telemetry-verifier/db/migrations",
 }
 

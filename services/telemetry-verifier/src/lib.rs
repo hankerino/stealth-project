@@ -15,4 +15,5 @@ pub mod metrics;
 pub mod schema;
 pub mod sla;
 pub mod store;
+pub mod tokens;
 pub mod verify;

@@ -14,10 +14,19 @@ orders on that GPU type are accepted as primary supply.
    this up on the next login.
 3. Seller reads their **Account id** at the top of Portfolio (also the
    `sub` of their token). That is `SELLER_ID`.
-4. Issue a registration token: today this is the single platform
-   `REGISTRATION_TOKEN` on `cte-telemetry-verifier` — share it over a
-   private channel. (Per-seller tokens are a verifier follow-up; until
-   then, rotate it after each onboarding if the seller leaves.)
+4. Mint a **per-seller registration token** (bound to that account id; only
+   its hash is stored) and share it over a private channel:
+
+   ```sh
+   curl -s -X POST https://cte-telemetry-verifier-w3t7.onrender.com/v1/admin/registration-tokens \
+     -H "X-Admin-Token: $VERIFIER_ADMIN_TOKEN" -H "Content-Type: application/json" \
+     -d '{"seller_id":"<account uuid>","label":"acme-gpu-rack-1"}'
+   # -> {"seller_id":"…","token":"srt_…"}   (shown once)
+   ```
+   Revoke all of a seller's tokens: `POST …/v1/admin/registration-tokens/revoke`
+   with `{"seller_id":"…"}`. A token only registers nodes for its own
+   seller_id; the old platform-wide `REGISTRATION_TOKEN` is a break-glass
+   fallback and should be unset once real sellers are on per-seller tokens.
 
 ## 2. Node install (seller side, ~5 min)
 
@@ -55,7 +64,6 @@ Outbound only: HTTPS to the verifier and settlement URLs. No inbound ports
 
 ## Open items before real money
 
-- Per-seller registration tokens + admin revoke (verifier).
 - Region: nodes register without a region; scheduling matches GPU type
   only. Add `REGION` to the agent + `seller_nodes.region_id`.
 - Held allocations never expire (see docs/RESALE.md).
