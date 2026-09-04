@@ -1,2 +1,2 @@
-kafka-python==2.3.2
+kafka-python==3.0.11
 redis==8.1.0
