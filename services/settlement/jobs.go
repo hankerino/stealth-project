@@ -87,6 +87,36 @@ func (s *settlementService) findExecutorNode(ctx context.Context, symbol string)
 	return nodeID, err
 }
 
+// findBackingNode handles resale routing. If the seller operates an active
+// node for the symbol's GPU type this is primary supply: ("", false, nil) and
+// the caller picks an executor. Otherwise the seller is reselling hours they
+// hold, and the job belongs on the node that executed their most recent
+// purchase of this symbol: (node, true, nil). ("", true, nil) means a resale
+// with no traceable backing node; the caller falls back to any live node.
+func (s *settlementService) findBackingNode(ctx context.Context, sellerID, symbol string) (string, bool, error) {
+	var operates int
+	if err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM seller_nodes sn
+		JOIN gpu_types g ON g.id = sn.gpu_type_id
+		WHERE sn.seller_id::text = $1 AND g.name = $2 AND sn.status = 'active'`,
+		sellerID, gpuPart(symbol)).Scan(&operates); err != nil {
+		return "", false, err
+	}
+	if operates > 0 {
+		return "", false, nil
+	}
+	var nodeID sql.NullString
+	err := s.db.QueryRowContext(ctx, `
+		SELECT j.node_id::text FROM jobs j
+		JOIN seller_nodes sn ON sn.node_id = j.node_id AND sn.status = 'active'
+		WHERE j.buyer_id = $1 AND j.symbol = $2
+		ORDER BY j.created_at DESC LIMIT 1`, sellerID, symbol).Scan(&nodeID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return "", true, err
+	}
+	return nodeID.String, true, nil
+}
+
 // createJobForTrade holds the buyer's escrow and creates the queued job +
 // PENDING ledger row in one transaction, then emits JobAssigned.
 // Business outcomes return nil (consumer commits): job created, FAILED with
@@ -102,9 +132,17 @@ func (s *settlementService) createJobForTrade(ctx context.Context, t *TradeExecu
 		buyerID, sellerID = t.MakerUserID, t.TakerUserID
 	}
 
-	nodeID, err := s.findExecutorNode(ctx, t.Symbol)
+	// Resale: a seller with no node of their own is passing on hours they
+	// bought, so the job goes to the node that backed their holding (the
+	// allocation transfers with the sale). Primary supply picks a live node.
+	nodeID, resale, err := s.findBackingNode(ctx, sellerID, t.Symbol)
 	if err != nil {
-		return fmt.Errorf("find executor node: %w", err)
+		return fmt.Errorf("find backing node: %w", err)
+	}
+	if nodeID == "" {
+		if nodeID, err = s.findExecutorNode(ctx, t.Symbol); err != nil {
+			return fmt.Errorf("find executor node: %w", err)
+		}
 	}
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
@@ -196,8 +234,12 @@ func (s *settlementService) createJobForTrade(ctx context.Context, t *TradeExecu
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
-	log.Printf("trade %s HELD: %d cents from %s; job %s queued for node %s",
-		t.TradeID, totalCost, buyerID, j.JobID, nodeID)
+	kind := "primary"
+	if resale {
+		kind = "resale"
+	}
+	log.Printf("trade %s HELD (%s): %d cents from %s; job %s queued for node %s",
+		t.TradeID, kind, totalCost, buyerID, j.JobID, nodeID)
 	s.emitJobEvent("ASSIGNED", j, "")
 	return nil
 }

@@ -17,6 +17,7 @@ terminates TLS and proxies HTTP, which fits Render, not serverless).
 | `cte-market-data` (web, docker) | `services/market-data/Dockerfile` | WebSocket fan-out; no health route (TCP check) |
 | `cte-matching-engine` (worker, docker) | `services/matching-engine/Dockerfile` | `numInstances: 1` — single-writer book, never scale without symbol sharding |
 | `cte-telemetry-verifier` (web, docker) | `services/telemetry-verifier/Dockerfile` | SLA engine + public node registration/heartbeat API (`:8082`, token-gated) |
+| `cte-risk` (private, docker) | `services/risk/Dockerfile` | Positions from `trades`; pre-trade checks for order (gRPC :9094); `GET /v1/positions` via gateway (:8084) |
 | `cte-node-agent` (worker, docker) | `services/node-agent/Dockerfile` | Demo seller node: fake H100 + mock executor so H100 trades settle. Remove once a real seller is onboarded |
 | `cte-index-engine` (worker, Python) | `services/index-engine` | `numInstances: 1` singleton consumer; Compute Price Index → `market-data` topic + Redis |
 | `fix-gateway` (private service, docker) | `services/fix-gateway/Dockerfile` | FIX 4.4 TCP at `fix-gateway:9878`, internal only |

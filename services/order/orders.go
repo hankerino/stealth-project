@@ -77,7 +77,7 @@ type OrderInput struct {
 	ContractID  int64
 }
 
-// marginError is returned when the Risk service rejects a futures order.
+// marginError is returned when the Risk service rejects an order.
 type marginError struct{ reason string }
 
 func (e *marginError) Error() string { return "margin check failed: " + e.reason }
@@ -222,6 +222,23 @@ func (s *orderService) placeOrder(ctx context.Context, in *OrderInput) (*Order, 
 		gpuType = strings.TrimSpace(in.GPUType)
 		region = strings.TrimSpace(in.Region)
 		sym = symbol(gpuType, region)
+		// Spot pre-trade check (Risk): buys need escrow for the notional;
+		// sells must be backed by an active node (primary supply) or by
+		// held hours (resale) — no naked capacity sells.
+		allowed, reason, err := s.risk.CheckMargin(ctx, MarginReq{
+			UserID:     strings.TrimSpace(in.UserID),
+			Symbol:     sym,
+			Kind:       KindSpot,
+			Side:       in.Side,
+			PriceCents: in.PriceCents,
+			Quantity:   in.Quantity,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("risk check: %w", err)
+		}
+		if !allowed {
+			return nil, &marginError{reason: reason}
+		}
 	}
 
 	o := &Order{

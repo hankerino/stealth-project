@@ -69,6 +69,7 @@ func main() {
 	api := &httpAPI{svc: svc}
 	mux.HandleFunc("/v1/risk/check-margin", api.handleCheckMargin)
 	mux.HandleFunc("/v1/risk/position", api.handlePosition)
+	mux.HandleFunc("/v1/positions", api.handleMyPositions)
 
 	httpAddr := envOr("LISTEN_ADDR", ":8084")
 	go func() {

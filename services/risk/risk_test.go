@@ -44,3 +44,22 @@ func TestAbs64(t *testing.T) {
 		t.Fatal("abs64 wrong")
 	}
 }
+
+func TestNakedSpotSell(t *testing.T) {
+	cases := []struct {
+		kind, side string
+		projected  int64
+		want       bool
+	}{
+		{KindSpot, SideSell, -1, true},   // selling more than held
+		{KindSpot, SideSell, 0, false},   // exact resale of held hours
+		{KindSpot, SideSell, 3, false},   // partial resale
+		{KindSpot, SideBuy, -5, false},   // buys never naked
+		{KindFutures, SideSell, -1, false}, // futures short is margin-governed
+	}
+	for _, c := range cases {
+		if got := nakedSpotSell(c.kind, c.side, c.projected); got != c.want {
+			t.Errorf("nakedSpotSell(%s,%s,%d)=%v want %v", c.kind, c.side, c.projected, got, c.want)
+		}
+	}
+}

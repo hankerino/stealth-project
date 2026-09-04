@@ -13,7 +13,7 @@
 //	AUTH_DEV_BYPASS       "true" to run with a synthetic admin identity (dev).
 //	GATEWAY_SHARED_SECRET stamped on internal calls as X-Gateway-Secret so
 //	                      downstreams can confirm the request came via us.
-//	ORDER_ADDR, SETTLEMENT_ADDR, CATALOG_ADDR, MARKETDATA_ADDR
+//	ORDER_ADDR, SETTLEMENT_ADDR, CATALOG_ADDR, MARKETDATA_ADDR, RISK_ADDR
 //	                      base URLs of the downstream services, e.g.
 //	                      http://cte-order:8090 . Unset => that route 503s.
 //	RATE_LIMIT_RPS, RATE_LIMIT_BURST  per-account token-bucket tuning.
@@ -74,6 +74,7 @@ func registerGateway(mux *http.ServeMux) {
 	settlement := proxyHandler(os.Getenv("SETTLEMENT_ADDR"), gwSecret)
 	catalog := proxyHandler(os.Getenv("CATALOG_ADDR"), gwSecret)
 	marketData := proxyHandler(os.Getenv("MARKETDATA_ADDR"), gwSecret)
+	risk := proxyHandler(os.Getenv("RISK_ADDR"), gwSecret)
 
 	// protected wraps a downstream handler with auth -> rate-limit -> role/verified.
 	protected := func(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler {
@@ -90,6 +91,9 @@ func registerGateway(mux *http.ServeMux) {
 	mux.Handle("POST /v1/orders", trading(order))
 	mux.Handle("GET /v1/orders", trading(order))
 	mux.Handle("DELETE /v1/orders/{id}", trading(order))
+
+	// Positions (risk): held GPU-hours per market, for resale.
+	mux.Handle("GET /v1/positions", trading(risk))
 
 	// Escrow (settlement). Card deposits go through Stripe Checkout
 	// (/checkout -> hosted page -> webhook credits escrow); the direct credit
