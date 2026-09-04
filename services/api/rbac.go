@@ -61,3 +61,23 @@ func chain(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler 
 	}
 	return h
 }
+
+// requireMFA allows the request only if the session was elevated with a second
+// factor (Supabase aal2). Used for admin routes and money-out. The web app
+// turns the 403 + "mfa_required" into a prompt to enrol/challenge.
+func requireMFA() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c, ok := claimsFrom(r.Context())
+			if !ok {
+				writeError(w, http.StatusUnauthorized, "not authenticated")
+				return
+			}
+			if c.AAL != "aal2" {
+				writeJSON(w, http.StatusForbidden, map[string]string{"error": "mfa_required", "message": "this action requires two-factor authentication"})
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}

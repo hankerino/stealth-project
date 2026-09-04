@@ -1,0 +1,31 @@
+name: market-data
+
+on:
+  push:
+    paths:
+      - "services/market-data/**"
+      - ".github/workflows/market-data.yml"
+  pull_request:
+    paths:
+      - "services/market-data/**"
+      - ".github/workflows/market-data.yml"
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      # librdkafka 2.x pins cmake_minimum_required < 3.5; newer cmake needs this.
+      CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - name: System deps (librdkafka cmake build + openssl + curl header)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential pkg-config libssl-dev libcurl4-openssl-dev
+      - name: Build + test
+        working-directory: services/market-data
+        run: |
+          cargo build --all-targets
+          cargo test

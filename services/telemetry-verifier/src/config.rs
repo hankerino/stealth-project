@@ -11,6 +11,8 @@ pub struct Config {
     /// registry and no Aurora schema sync (dev/e2e mode).
     pub database_url: Option<String>,
     pub registration_token: Option<String>,
+    /// Operator secret for the token-minting admin endpoints (X-Admin-Token).
+    pub admin_token: Option<String>,
     pub listen_addr: String,
     /// How often the SLA engine evaluates windows. env SLA_EVAL_INTERVAL_SECS
     pub eval_interval_secs: u64,
@@ -31,7 +33,8 @@ impl Config {
             kafka_tls_enabled: matches!(std::env::var("KAFKA_TLS_ENABLED").as_deref(), Ok("true") | Ok("1")),
             redis_url: std::env::var("REDIS_URL").unwrap_or_else(|_| "redis://127.0.0.1:6379".into()),
             database_url,
-            registration_token: std::env::var("REGISTRATION_TOKEN").ok(),
+            registration_token: std::env::var("REGISTRATION_TOKEN").ok().filter(|s| !s.is_empty()),
+            admin_token: std::env::var("ADMIN_TOKEN").ok().filter(|s| !s.is_empty()),
             listen_addr: std::env::var("LISTEN_ADDR").unwrap_or_else(|_| ":8082".into()),
             eval_interval_secs: env_i64("SLA_EVAL_INTERVAL_SECS", 10).max(1) as u64,
             sla: SlaConfig {

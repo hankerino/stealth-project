@@ -10,6 +10,7 @@ use telemetry_verifier::http::{self, AppState};
 use telemetry_verifier::keys::KeyRegistry;
 use telemetry_verifier::metrics::Metrics;
 use telemetry_verifier::store::RedisStore;
+use telemetry_verifier::tokens;
 use tracing::info;
 use tracing_subscriber::EnvFilter;
 
@@ -31,10 +32,14 @@ async fn main() -> Result<()> {
 
     // Key registry + optional Aurora schema sync. SKIP_DB=1 (or a missing
     // DATABASE_URL) selects the in-memory registry — dev/e2e mode.
+    let mut tokens = None;
     let registry = match &cfg.database_url {
         Some(url) => {
             let pool = db::connect(url).await?;
             db::ensure_schema(&pool).await?;
+            let ts = tokens::TokenStore::new(pool.clone());
+            ts.ensure_schema().await?;
+            tokens = Some(ts);
             let sync_pool = pool.clone();
             let sync_store = store.clone();
             tokio::spawn(async move { db::run_sync(sync_pool, sync_store).await });
@@ -82,6 +87,8 @@ async fn main() -> Result<()> {
         registry,
         store,
         registration_token: cfg.registration_token.clone(),
+        admin_token: cfg.admin_token.clone(),
+        tokens,
         metrics,
     });
 

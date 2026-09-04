@@ -4,6 +4,8 @@ import { useState } from "react";
 import { api, ApiError, type EscrowHistory, type Payout } from "@/lib/api";
 import { cents, when } from "@/lib/format";
 import { Card, btnCls, inputCls } from "./ui";
+import { MfaChallenge } from "./mfa";
+import Link from "next/link";
 
 /** Money in: Stripe Checkout (hosted page). The server creates the session
  *  and the escrow credit only happens on the webhook, so this button never
@@ -51,9 +53,10 @@ export function Withdraw({ disabled, balance, onChanged }: { disabled: boolean; 
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [needMfa, setNeedMfa] = useState(false);
 
-  const go = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const go = async (e?: React.FormEvent) => {
+    e?.preventDefault();
     setBusy(true);
     setMsg(null);
     try {
@@ -61,12 +64,14 @@ export function Withdraw({ disabled, balance, onChanged }: { disabled: boolean; 
         method: "POST",
         body: JSON.stringify({ amount_cents: Math.round(parseFloat(amount) * 100), note }),
       });
+      setNeedMfa(false);
       setMsg({ ok: true, text: `Payout of ${cents(p.amount_cents)} requested.` });
       setAmount("");
       setNote("");
       onChanged();
     } catch (e) {
-      setMsg({ ok: false, text: (e as Error).message });
+      if (e instanceof ApiError && e.mfaRequired) setNeedMfa(true);
+      else setMsg({ ok: false, text: (e as Error).message });
     } finally {
       setBusy(false);
     }
@@ -81,8 +86,14 @@ export function Withdraw({ disabled, balance, onChanged }: { disabled: boolean; 
         </div>
         <input className={inputCls} placeholder="Payout details (bank / reference) — optional" value={note} onChange={(e) => setNote(e.target.value)} disabled={disabled} />
       </form>
+      {needMfa && (
+        <div className="mt-2 space-y-1 rounded border border-amber-900 bg-amber-950/40 p-2 text-xs text-amber-200">
+          <p>Withdrawals need two-factor authentication. Enter your authenticator code to continue, or <Link href="/settings/security" className="underline">set one up</Link>.</p>
+          <MfaChallenge onDone={() => void go()} />
+        </div>
+      )}
       {msg && <p className={`mt-2 text-xs ${msg.ok ? "text-emerald-300" : "text-red-300"}`}>{msg.text}</p>}
-      <p className="mt-2 text-xs text-zinc-500">Closed beta: payouts are processed manually within 2 business days.</p>
+      <p className="mt-2 text-xs text-zinc-500">Closed beta: payouts are processed manually within 2 business days. Limits: $5,000 per request, $10,000 per 24 h, one open request at a time.</p>
     </Card>
   );
 }
@@ -193,6 +204,12 @@ export function AdminFunds({ onChanged }: { onChanged: () => void }) {
         <button className={`${btnCls} bg-zinc-700 hover:bg-zinc-600`} disabled={busy || !amount}>Credit escrow</button>
       </form>
       {msg && <p className="mt-2 text-xs text-zinc-300">{msg}</p>}
+      {/mfa_required|two-factor/i.test(msg ?? "") && (
+        <div className="mt-2 space-y-1 rounded border border-amber-900 bg-amber-950/40 p-2 text-xs text-amber-200">
+          <p>Admin actions need two-factor authentication. Enter your code (or <Link href="/settings/security" className="underline">enrol</Link>), then retry.</p>
+          <MfaChallenge onDone={() => setMsg("Session elevated — retry the action.")} />
+        </div>
+      )}
       {queue && (
         <div className="mt-3 overflow-x-auto">
           {queue.length === 0 ? (

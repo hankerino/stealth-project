@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use axum::extract::State;
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -18,12 +18,19 @@ use crate::engine::now_unix_ms;
 use crate::keys::{self, KeyRegistry};
 use crate::metrics::Metrics;
 use crate::store::RedisStore;
+use crate::tokens::{TokenCheck, TokenStore};
 use crate::verify;
 
 pub struct AppState {
     pub registry: KeyRegistry,
     pub store: RedisStore,
+    /// Platform-wide break-glass token (deprecated; unset once every seller
+    /// has a per-seller token).
     pub registration_token: Option<String>,
+    /// Operator secret for /v1/admin/* (X-Admin-Token).
+    pub admin_token: Option<String>,
+    /// Per-seller tokens; None in SKIP_DB mode.
+    pub tokens: Option<TokenStore>,
     pub metrics: Arc<Metrics>,
 }
 
@@ -33,6 +40,8 @@ pub fn router(state: Arc<AppState>) -> Router {
         .route("/metrics", get(metrics))
         .route("/v1/nodes/register", post(register))
         .route("/v1/heartbeat", post(heartbeat))
+        .route("/v1/admin/registration-tokens", post(mint_token))
+        .route("/v1/admin/registration-tokens/revoke", post(revoke_tokens))
         .with_state(state)
 }
 
@@ -80,13 +89,29 @@ async fn register(
     let reject = |reason: &str, code: StatusCode| {
         (code, Json(RegisterNodeResponse { node_id: String::new(), accepted: false, reject_reason: Some(reason.to_string()) }))
     };
-    let configured = match &state.registration_token {
-        Some(t) => t.clone(),
-        None => return reject("registration disabled (REGISTRATION_TOKEN unset)", StatusCode::SERVICE_UNAVAILABLE),
-    };
-    if req.registration_token != configured {
-        return reject("invalid registration_token", StatusCode::FORBIDDEN);
+    // Per-seller token first (binds the token to the claimed seller_id);
+    // the platform-wide token is only a fallback while it is still configured.
+    let mut authorized = false;
+    if let Some(ts) = &state.tokens {
+        match ts.check(&req.registration_token, &req.seller_id).await {
+            Ok(TokenCheck::Valid) => authorized = true,
+            Ok(TokenCheck::Revoked) => return reject("registration_token revoked", StatusCode::FORBIDDEN),
+            Ok(TokenCheck::SellerMismatch) => return reject("registration_token belongs to a different seller", StatusCode::FORBIDDEN),
+            Ok(TokenCheck::Unknown) => {}
+            Err(e) => {
+                warn!(error = %e, "token lookup failed");
+                return reject("internal error", StatusCode::INTERNAL_SERVER_ERROR);
+            }
+        }
     }
+    if !authorized {
+        match &state.registration_token {
+            Some(t) if *t == req.registration_token => authorized = true,
+            Some(_) => return reject("invalid registration_token", StatusCode::FORBIDDEN),
+            None => return reject("invalid registration_token (ask the exchange for a seller token)", StatusCode::FORBIDDEN),
+        }
+    }
+    debug_assert!(authorized);
     let public_key = match keys::parse_public_key(&req.public_key_pem) {
         Ok(k) => k,
         Err(e) => return reject(&format!("invalid public_key_pem: {e}"), StatusCode::BAD_REQUEST),
@@ -144,4 +169,74 @@ async fn heartbeat(
         return (StatusCode::INTERNAL_SERVER_ERROR, Json(HeartbeatResponse { ok: false }));
     }
     (StatusCode::OK, Json(HeartbeatResponse { ok: true }))
+}
+
+// ---- Operator endpoints: per-seller registration tokens ---------------------
+
+#[derive(Debug, Deserialize)]
+pub struct MintTokenRequest {
+    pub seller_id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MintTokenResponse {
+    pub seller_id: String,
+    /// Shown exactly once; only its hash is stored.
+    pub token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct RevokeTokensRequest {
+    pub seller_id: String,
+}
+
+fn admin_ok(state: &AppState, headers: &HeaderMap) -> bool {
+    let Some(expected) = &state.admin_token else { return false };
+    headers
+        .get("x-admin-token")
+        .and_then(|v| v.to_str().ok())
+        .map(|got| got.len() == expected.len() && got.bytes().zip(expected.bytes()).fold(0u8, |acc, (a, b)| acc | (a ^ b)) == 0)
+        .unwrap_or(false)
+}
+
+async fn mint_token(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<MintTokenRequest>,
+) -> impl IntoResponse {
+    if !admin_ok(&state, &headers) {
+        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "admin token required"}))).into_response();
+    }
+    let Some(ts) = &state.tokens else {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "no database"}))).into_response();
+    };
+    match ts.mint(&req.seller_id, req.label.as_deref(), "admin").await {
+        Ok(token) => (StatusCode::OK, Json(MintTokenResponse { seller_id: req.seller_id, token })).into_response(),
+        Err(e) => {
+            warn!(error = %e, "mint token failed");
+            (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "could not mint token (is seller_id a uuid?)"}))).into_response()
+        }
+    }
+}
+
+async fn revoke_tokens(
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<RevokeTokensRequest>,
+) -> impl IntoResponse {
+    if !admin_ok(&state, &headers) {
+        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "admin token required"}))).into_response();
+    }
+    let Some(ts) = &state.tokens else {
+        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({"error": "no database"}))).into_response();
+    };
+    match ts.revoke_seller(&req.seller_id).await {
+        Ok(n) => (StatusCode::OK, Json(serde_json::json!({"seller_id": req.seller_id, "revoked": n}))).into_response(),
+        Err(e) => {
+            warn!(error = %e, "revoke failed");
+            (StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "could not revoke"}))).into_response()
+        }
+    }
 }

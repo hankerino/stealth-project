@@ -57,6 +57,12 @@ const (
 
 var errInsufficientFunds = errors.New("insufficient escrow balance")
 
+// Withdrawal-control rejections (payments.go requestPayout).
+var (
+	errPayoutPending  = errors.New("a payout request is already pending; wait for it to be resolved")
+	errPayoutDailyCap = errors.New("withdrawal limit reached: at most $10,000 per 24 hours during the closed beta")
+)
+
 // settlementService holds the shared state used by the consumer and REST API.
 type settlementService struct {
 	db                  *sql.DB

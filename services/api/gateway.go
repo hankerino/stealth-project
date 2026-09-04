@@ -49,7 +49,7 @@ func selectVerifier(hs256Secret, supabaseURL, anonKey string) signatureVerifier 
 	return nil
 }
 
-func registerGateway(mux *http.ServeMux) {
+func registerGateway(mux *http.ServeMux, audit *auditor) {
 	hs256Secret := os.Getenv("SUPABASE_JWT_SECRET")
 	supabaseURL := os.Getenv("SUPABASE_URL")
 	anonKey := os.Getenv("SUPABASE_ANON_KEY")
@@ -77,15 +77,18 @@ func registerGateway(mux *http.ServeMux) {
 	risk := proxyHandler(os.Getenv("RISK_ADDR"), gwSecret)
 	compliance := proxyHandler(os.Getenv("COMPLIANCE_ADDR"), gwSecret)
 
-	// protected wraps a downstream handler with auth -> rate-limit -> role/verified.
+	// protected wraps a downstream handler with auth -> audit -> rate-limit -> role/verified.
 	protected := func(h http.Handler, mws ...func(http.Handler) http.Handler) http.Handler {
-		base := []func(http.Handler) http.Handler{auth.middleware, rl.middleware}
+		base := []func(http.Handler) http.Handler{auth.middleware, audit.middleware, rl.middleware}
 		return chain(h, append(base, mws...)...)
 	}
 
+	// Money out and every admin action need a second factor (Supabase aal2).
+	mfa := requireMFA()
+
 	// Trading: any KYB-verified trading role (buyer/seller/trader). admin passes too.
-	trading := func(h http.Handler) http.Handler {
-		return protected(h, requireVerified(), requireRole("buyer", "seller", "trader"))
+	trading := func(h http.Handler, extra ...func(http.Handler) http.Handler) http.Handler {
+		return protected(h, append([]func(http.Handler) http.Handler{requireVerified(), requireRole("buyer", "seller", "trader")}, extra...)...)
 	}
 
 	// Orders (Go 1.22 method+wildcard patterns; downstream keeps its own paths).
@@ -98,30 +101,30 @@ func registerGateway(mux *http.ServeMux) {
 
 	// Surveillance alerts (compliance): admin review queue.
 	mux.Handle("GET /v1/admin/alerts", protected(compliance, requireRole("admin")))
-	mux.Handle("POST /v1/admin/alerts/{id}", protected(compliance, requireRole("admin")))
+	mux.Handle("POST /v1/admin/alerts/{id}", protected(compliance, requireRole("admin"), mfa))
 
 	// Escrow (settlement). Card deposits go through Stripe Checkout
 	// (/checkout -> hosted page -> webhook credits escrow); the direct credit
 	// endpoint is an operator tool, admin only. The Stripe webhook itself hits
 	// settlement's public URL directly (signature-verified), not the gateway.
-	mux.Handle("POST /v1/escrow/deposit", protected(settlement, requireRole("admin")))
+	mux.Handle("POST /v1/escrow/deposit", protected(settlement, requireRole("admin"), mfa))
 	mux.Handle("POST /v1/escrow/checkout", trading(settlement))
-	mux.Handle("POST /v1/escrow/withdraw", trading(settlement))
+	mux.Handle("POST /v1/escrow/withdraw", trading(settlement, mfa))
 	mux.Handle("GET /v1/escrow/history", trading(settlement))
 	mux.Handle("GET /v1/escrow/balance", trading(settlement))
 	// Allocations (settlement): held GPU-hours; run them or resell on the book.
 	mux.Handle("GET /v1/allocations", trading(settlement))
 	mux.Handle("POST /v1/jobs/{id}/run", trading(settlement))
 	mux.Handle("GET /v1/admin/payouts", protected(settlement, requireRole("admin")))
-	mux.Handle("POST /v1/admin/payouts/{id}", protected(settlement, requireRole("admin")))
+	mux.Handle("POST /v1/admin/payouts/{id}", protected(settlement, requireRole("admin"), mfa))
 
 	// Catalog: reference data. Reads are public (no auth); writes are admin-only.
 	mux.Handle("GET /v1/gpu-types", catalog)
 	mux.Handle("GET /v1/regions", catalog)
 	mux.Handle("GET /v1/futures-contracts", catalog)
-	mux.Handle("POST /v1/gpu-types", protected(catalog, requireRole("admin")))
-	mux.Handle("POST /v1/regions", protected(catalog, requireRole("admin")))
-	mux.Handle("POST /v1/futures-contracts", protected(catalog, requireRole("admin")))
+	mux.Handle("POST /v1/gpu-types", protected(catalog, requireRole("admin"), mfa))
+	mux.Handle("POST /v1/regions", protected(catalog, requireRole("admin"), mfa))
+	mux.Handle("POST /v1/futures-contracts", protected(catalog, requireRole("admin"), mfa))
 
 	// Market data: public quotes (WS). Left unauthenticated for M1.
 	mux.Handle("/v1/marketdata/", http.StripPrefix("/v1/marketdata", marketData))

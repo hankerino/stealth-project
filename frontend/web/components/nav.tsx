@@ -8,6 +8,7 @@ import { Brand } from "./brand";
 const links = [
   { href: "/", label: "Markets" },
   { href: "/portfolio", label: "Portfolio" },
+  { href: "/settings/security", label: "Security" },
 ];
 
 export function Nav({ email }: { email?: string | null }) {

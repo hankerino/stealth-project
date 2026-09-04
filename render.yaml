@@ -342,7 +342,9 @@ services:
       - key: KAFKA_TLS_ENABLED
         value: "false"
       - key: REGISTRATION_TOKEN
-        sync: false # set in the Render dashboard — never commit a value
+        sync: false # break-glass platform token; unset once every seller has a per-seller token
+      - key: ADMIN_TOKEN
+        sync: false # X-Admin-Token for POST /v1/admin/registration-tokens (mint/revoke)
       - key: RUST_LOG
         value: info
 

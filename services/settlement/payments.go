@@ -36,6 +36,10 @@ const (
 	// Guard rails for the closed beta.
 	minDepositCents = 100       // $1
 	maxDepositCents = 10_000_00 // $10,000 per checkout
+	// Withdrawals: per request and per rolling 24 h (closed-beta limits;
+	// raise deliberately, with the admin 4-eyes step, before real volume).
+	maxPayoutCents      = 5_000_00  // $5,000 per request
+	dailyPayoutCapCents = 10_000_00 // $10,000 per 24 h
 	webhookMaxBody  = 64 << 10
 )
 
@@ -199,11 +203,34 @@ func (s *settlementService) requestPayout(ctx context.Context, userID string, am
 	if amountCents <= 0 {
 		return nil, errors.New("amount_cents must be greater than 0")
 	}
+	if amountCents > maxPayoutCents {
+		return nil, fmt.Errorf("amount_cents exceeds the per-request maximum of %d", maxPayoutCents)
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback() //nolint:errcheck
+
+	// Withdrawal controls (security pass 2): one open request at a time and a
+	// rolling 24 h cap, so a hijacked session cannot drain an account in one go.
+	var open int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT count(*) FROM payout_requests WHERE user_id = $1 AND status = 'REQUESTED'`, userID).Scan(&open); err != nil {
+		return nil, err
+	}
+	if open > 0 {
+		return nil, errPayoutPending
+	}
+	var last24h int64
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(amount_cents), 0) FROM payout_requests
+		WHERE user_id = $1 AND status <> 'REJECTED' AND created_at > now() - interval '24 hours'`, userID).Scan(&last24h); err != nil {
+		return nil, err
+	}
+	if last24h+amountCents > dailyPayoutCapCents {
+		return nil, errPayoutDailyCap
+	}
 
 	var balance int64
 	err = tx.QueryRowContext(ctx,
@@ -425,7 +452,7 @@ func (a *httpAPI) handleWithdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := a.svc.requestPayout(r.Context(), userID, req.AmountCents, req.Note)
-	if errors.Is(err, errInsufficientFunds) {
+	if errors.Is(err, errInsufficientFunds) || errors.Is(err, errPayoutPending) || errors.Is(err, errPayoutDailyCap) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
