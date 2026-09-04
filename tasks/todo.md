@@ -103,15 +103,27 @@ for every service it touches. "Done" = CI green.
         Card path returns 503 + UI notice until Stripe keys are set.
   - [x] 4242 card -> Checkout -> webhook -> $25 credited (305 -> 330), 2026-09-04.
 
-## Next (after 2026-09-04)
-- [ ] Deferred execution for allocations (buy → held → run or resell); today
-      purchased hours execute immediately via the mock executor.
-- [ ] Futures ticket in the web UI (risk margin path is deployed now).
-- [ ] fix-gateway batch 3b + edge exposure when a FIX client exists.
-- [ ] Real seller onboarding: replace cte-node-agent with a real node; rotate
-      Stripe to live keys (test keys were pasted in chat — rotate before live).
-- [ ] Render: path-filtered deploys or a monorepo trigger to stop rebuilding
-      every Rust service on every push.
+## Next (after 2026-09-04, round 2)
+- [x] Deferred execution: buy → held → run or resell (settlement allocations.go,
+      migration 0005; risk sell rule on held jobs; Allocations card). Live:
+      2 h bought → held → Run → completed → SETTLED.
+- [x] Futures ticket: forward contracts on Markets, contract-aware trade view,
+      forward positions in Portfolio. Live: first futures order accepted via
+      risk margin check (then cancelled).
+- [x] Seller onboarding kit: scripts/install-node-agent.sh + docs/SELLER_ONBOARDING.md;
+      Account id shown in Portfolio.
+- [x] FIX edge kit: infra/fix-edge (haproxy + WireGuard jump + runbook).
+      NOT exposed: batch 3b (order forwarding + ExecutionReports) is still
+      unimplemented, so exposure would be an empty session. Do 3b first.
+- [ ] fix-gateway batch 3b.
+- [ ] Futures unit: order/risk compute notional = price × quantity and ignore
+      futures_contracts.contract_size (100 GPU-h). Decide whether quantity is
+      contracts (then multiply) or GPU-hours (then drop contract_size) before
+      real money. UI currently labels it "contracts" to match the backend math.
+- [ ] Held allocations never expire; refund/expiry policy needed.
+- [ ] Per-seller registration tokens + region on registration (verifier).
+- [ ] Rotate Stripe to live keys (test keys were pasted in chat).
+- [ ] Render: path-filtered deploys (every push rebuilds every Rust service).
 
 ## Review (filled in as phases land)
 - 2026-09-04 (Claude took over the backlog end to end):
