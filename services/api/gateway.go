@@ -91,9 +91,17 @@ func registerGateway(mux *http.ServeMux) {
 	mux.Handle("GET /v1/orders", trading(order))
 	mux.Handle("DELETE /v1/orders/{id}", trading(order))
 
-	// Escrow (settlement).
-	mux.Handle("POST /v1/escrow/deposit", trading(settlement))
+	// Escrow (settlement). Card deposits go through Stripe Checkout
+	// (/checkout -> hosted page -> webhook credits escrow); the direct credit
+	// endpoint is an operator tool, admin only. The Stripe webhook itself hits
+	// settlement's public URL directly (signature-verified), not the gateway.
+	mux.Handle("POST /v1/escrow/deposit", protected(settlement, requireRole("admin")))
+	mux.Handle("POST /v1/escrow/checkout", trading(settlement))
+	mux.Handle("POST /v1/escrow/withdraw", trading(settlement))
+	mux.Handle("GET /v1/escrow/history", trading(settlement))
 	mux.Handle("GET /v1/escrow/balance", trading(settlement))
+	mux.Handle("GET /v1/admin/payouts", protected(settlement, requireRole("admin")))
+	mux.Handle("POST /v1/admin/payouts/{id}", protected(settlement, requireRole("admin")))
 
 	// Catalog: reference data. Reads are public (no auth); writes are admin-only.
 	mux.Handle("GET /v1/gpu-types", catalog)

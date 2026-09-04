@@ -60,7 +60,16 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	svc := &settlementService{db: db}
+	svc := &settlementService{
+		db:           db,
+		stripe:       newStripeClient(os.Getenv("STRIPE_SECRET_KEY"), os.Getenv("STRIPE_WEBHOOK_SECRET")),
+		publicWebURL: envOr("PUBLIC_WEB_URL", "https://cte-web.onrender.com"),
+	}
+	if svc.stripe.enabled() {
+		log.Print("stripe: card deposits enabled (Checkout + webhook)")
+	} else {
+		log.Print("STRIPE_SECRET_KEY unset; card deposits disabled (admin credit only)")
+	}
 	// MTM runner is available in all modes so POST /v1/mtm/run works in dev.
 	mtm := &mtmRunner{db: db}
 	svc.mtm = mtm
@@ -110,8 +119,14 @@ func main() {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	api := &httpAPI{svc: svc}
-	mux.HandleFunc("/v1/escrow/deposit", api.handleDeposit)
+	mux.HandleFunc("/v1/escrow/deposit", api.handleDeposit) // admin credit (gateway: admin only)
 	mux.HandleFunc("/v1/escrow/balance", api.handleBalance)
+	mux.HandleFunc("/v1/escrow/checkout", api.handleCheckout)
+	mux.HandleFunc("/v1/escrow/withdraw", api.handleWithdraw)
+	mux.HandleFunc("/v1/escrow/history", api.handleHistory)
+	mux.HandleFunc("/v1/admin/payouts", api.handleAdminPayouts)
+	mux.HandleFunc("/v1/admin/payouts/{id}", api.handleAdminPayoutResolve)
+	mux.HandleFunc("/v1/stripe/webhook", api.handleStripeWebhook) // public; Stripe-Signature verified
 	mux.HandleFunc("/v1/mtm/run", api.handleMTMRun)
 	mux.HandleFunc("/v1/jobs/poll", api.handleJobsPoll)
 	mux.HandleFunc("/v1/jobs/{id}/status", api.handleJobStatus)
