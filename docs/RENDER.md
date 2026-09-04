@@ -81,7 +81,7 @@ already in the environment.
 - **`services/node-agent`** — runs on seller GPU hardware, not on our
   platform. Sellers build it from this repo (`go build` / the agent CI
   workflow) and point `VERIFIER_URL` at
-  `https://cte-telemetry-verifier.onrender.com`, `JOBS_URL` at
+  `https://cte-telemetry-verifier-w3t7.onrender.com`, `JOBS_URL` at
   `https://cte-settlement.onrender.com`.
 - **AWS/Terraform layers** (`infra/terraform`) — remain the funded production
   path (`docs/ALTERNATIVE_STACK.md`); the Render blueprint replaces the same
