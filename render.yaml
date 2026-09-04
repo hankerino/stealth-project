@@ -139,6 +139,30 @@ services:
       - key: GATEWAY_SHARED_SECRET
         sync: false
 
+  # Compliance: market surveillance (wash trades, spoofing) from trades +
+  # order-updates; admin review API through the gateway. Private.
+  - type: pserv
+    name: cte-compliance
+    runtime: go
+    buildCommand: mkdir -p bin && cd services/compliance && go build -o ../../bin/compliance .
+    startCommand: ./bin/compliance
+    plan: starter
+    envVars:
+      - key: GO_VERSION
+        value: "1.22"
+      - key: LISTEN_ADDR
+        value: ":8085"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cte-postgres
+          property: connectionString
+      - key: KAFKA_BROKERS
+        value: redpanda-u6mq:9092
+      - key: KAFKA_TLS_ENABLED
+        value: "false"
+      - key: GATEWAY_SHARED_SECRET
+        sync: false
+
   - type: web
     name: cte-api
     runtime: go
@@ -202,6 +226,8 @@ services:
         value: http://cte-market-data:8081
       - key: RISK_ADDR
         value: http://cte-risk:8084
+      - key: COMPLIANCE_ADDR
+        value: http://cte-compliance:8085
       # Per-account rate limit (token bucket).
       - key: RATE_LIMIT_RPS
         value: "20"

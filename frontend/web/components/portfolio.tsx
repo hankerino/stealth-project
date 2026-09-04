@@ -7,6 +7,7 @@ import { Card, ErrorBanner, VerifyBanner } from "./ui";
 import { OrdersTable } from "./orders-table";
 import { AddFunds, AdminFunds, FundsHistory, Withdraw } from "./funds";
 import { Holdings } from "./holdings";
+import { SurveillanceAlerts } from "./alerts";
 
 export function Portfolio() {
   const [balance, setBalance] = useState<Balance | null>(null);
@@ -76,6 +77,7 @@ export function Portfolio() {
         <Withdraw disabled={unverified || !balance || balance.balance <= 0} balance={balance?.balance ?? 0} onChanged={refresh} />
       </div>
       {role === "admin" && <AdminFunds onChanged={refresh} />}
+      {role === "admin" && <SurveillanceAlerts />}
       <Holdings refreshKey={orders} />
       <Card title="Deposits & payouts"><FundsHistory history={history} /></Card>
       <Card title={`Open orders (${open.length})`}><OrdersTable orders={open} onChanged={refresh} showSymbol /></Card>
