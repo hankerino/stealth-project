@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, splitSymbol, type Order, type Position } from "@/lib/api";
+import { api, ApiError, isFuturesSymbol, splitSymbol, type Allocation, type FuturesContract, type Order } from "@/lib/api";
 import { useMarketData } from "@/lib/use-market-data";
 import { cents, when } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner, btnCls, inputCls } from "./ui";
@@ -13,6 +13,8 @@ export function TradeView({ symbol }: { symbol: string }) {
   const { quote, trades, status } = useMarketData(symbol);
   const [orders, setOrders] = useState<Order[]>([]);
   const [held, setHeld] = useState<number | null>(null);
+  const futures = isFuturesSymbol(symbol);
+  const [contract, setContract] = useState<FuturesContract | null>(null);
   const [unverified, setUnverified] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -21,8 +23,8 @@ export function TradeView({ symbol }: { symbol: string }) {
       const all = await api<Order[]>("/v1/orders");
       setOrders((all ?? []).filter((o) => o.symbol === symbol));
       setUnverified(false);
-      api<Position[]>("/v1/positions")
-        .then((ps) => setHeld((ps ?? []).find((p) => p.symbol === symbol && p.contract_id === 0)?.net_quantity ?? 0))
+      api<Allocation[]>("/v1/allocations")
+        .then((as) => setHeld((as ?? []).filter((a) => a.symbol === symbol && a.status === "held").reduce((n, a) => n + a.quantity, 0)))
         .catch(() => setHeld(null));
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) setUnverified(true);
@@ -34,6 +36,13 @@ export function TradeView({ symbol }: { symbol: string }) {
     void refresh();
   }, [refresh]);
 
+  useEffect(() => {
+    if (!futures) return;
+    api<FuturesContract[]>("/v1/futures-contracts")
+      .then((cs) => setContract((cs ?? []).find((c) => c.symbol === symbol) ?? null))
+      .catch(() => setContract(null));
+  }, [futures, symbol]);
+
   // Re-pull my orders whenever the tape prints; fills change status.
   useEffect(() => {
     if (trades.length) void refresh();
@@ -43,7 +52,9 @@ export function TradeView({ symbol }: { symbol: string }) {
     <div className="space-y-4">
       <div className="flex items-baseline gap-3">
         <h1 className="font-mono text-xl font-semibold">{symbol}</h1>
-        <span className="text-sm text-zinc-400">{gpu} · {region} · per GPU-hour</span>
+        <span className="text-sm text-zinc-400">
+          {gpu} · {region} · {futures ? (contract ? `forward, delivery ${contract.delivery_date} · ${contract.contract_size} GPU-h/contract` : "forward contract") : "per GPU-hour"}
+        </span>
         <span className={`ml-auto text-xs uppercase ${status === "live" ? "text-emerald-400" : "text-zinc-500"}`}>● {status}</span>
       </div>
       {unverified && <VerifyBanner />}
@@ -60,7 +71,7 @@ export function TradeView({ symbol }: { symbol: string }) {
           </dl>
         </Card>
 
-        <Ticket symbol={symbol} gpu={gpu} region={region} disabled={unverified} onPlaced={refresh} held={held} defaultPrice={quote?.last_trade_price_cents ?? quote?.best_ask_price_cents ?? quote?.best_bid_price_cents ?? null} />
+        <Ticket symbol={symbol} gpu={gpu} region={region} disabled={unverified || (futures && !contract)} onPlaced={refresh} held={futures ? null : held} contract={contract} defaultPrice={quote?.last_trade_price_cents ?? quote?.best_ask_price_cents ?? quote?.best_bid_price_cents ?? null} />
 
         <Card title="Recent trades">
           {trades.length === 0 ? (
@@ -90,8 +101,9 @@ export function TradeView({ symbol }: { symbol: string }) {
   );
 }
 
-function Ticket({ symbol, gpu, region, disabled, onPlaced, held, defaultPrice }: {
-  symbol: string; gpu: string; region: string; disabled: boolean; onPlaced: () => void; held: number | null; defaultPrice: number | null;
+function Ticket({ symbol, gpu, region, disabled, onPlaced, held, contract, defaultPrice }: {
+  symbol: string; gpu: string; region: string; disabled: boolean; onPlaced: () => void; held: number | null;
+  contract: FuturesContract | null; defaultPrice: number | null;
 }) {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [price, setPrice] = useState("");
@@ -120,6 +132,7 @@ function Ticket({ symbol, gpu, region, disabled, onPlaced, held, defaultPrice }:
           price_cents: Math.round(parseFloat(price) * 100),
           quantity: parseInt(qty, 10),
           time_in_force: tif,
+          ...(contract ? { contract_id: contract.id } : {}),
         }),
       });
       setOk(`${o.side} ${o.quantity} @ ${cents(o.price_cents)} — ${o.status}`);
@@ -132,6 +145,7 @@ function Ticket({ symbol, gpu, region, disabled, onPlaced, held, defaultPrice }:
   };
 
   const total = Math.round((parseFloat(price) || 0) * 100) * (parseInt(qty, 10) || 0);
+  const margin = contract ? Math.round(total * 0.1) : null;
 
   return (
     <Card title={`Order ticket · ${symbol}`}>
@@ -147,7 +161,7 @@ function Ticket({ symbol, gpu, region, disabled, onPlaced, held, defaultPrice }:
         <label className="block text-xs text-zinc-400">Price (USD / GPU-hour)
           <input className={`${inputCls} mt-1`} type="number" step="0.01" min="0.01" value={price} onChange={(e) => setPrice(e.target.value)} required />
         </label>
-        <label className="block text-xs text-zinc-400">Quantity (GPU-hours)
+        <label className="block text-xs text-zinc-400">{contract ? "Quantity (contracts)" : "Quantity (GPU-hours)"}
           <input className={`${inputCls} mt-1`} type="number" step="1" min="1" value={qty} onChange={(e) => setQty(e.target.value)} required />
         </label>
         <label className="block text-xs text-zinc-400">Time in force
@@ -158,10 +172,18 @@ function Ticket({ symbol, gpu, region, disabled, onPlaced, held, defaultPrice }:
           </select>
         </label>
         <div className="flex justify-between text-xs text-zinc-400"><span>Notional</span><span className="text-zinc-200">{cents(total)}</span></div>
+        {margin != null && (
+          <div className="flex justify-between text-xs text-zinc-400"><span>Initial margin (10%)</span><span className="text-zinc-200">{cents(margin)}</span></div>
+        )}
+        {contract && (
+          <p className="text-xs text-zinc-500">
+            Forward for delivery {contract.delivery_date}. Margin is held from escrow; positions are marked to market daily and cash-settled at expiry.
+          </p>
+        )}
         {side === "SELL" && held != null && (
           <p className="text-xs text-zinc-500">
             {held > 0
-              ? `You hold ${held} GPU-hour${held === 1 ? "" : "s"} here — sells up to that resell your allocation.`
+              ? `You hold ${held} unrun GPU-hour${held === 1 ? "" : "s"} here — sells up to that resell the allocation; the buyer pays you on fill.`
               : "Sells must be backed by hours you hold or by a registered node."}
           </p>
         )}

@@ -106,7 +106,7 @@ func (a *httpAPI) handleJobsPoll(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rows, err := a.svc.db.QueryContext(r.Context(), `
-		SELECT job_id::text, trade_id::text, node_id::text, symbol, buyer_id, seller_id, workload
+		SELECT job_id::text, trade_id::text, node_id::text, symbol, buyer_id, seller_id, workload, quantity
 		FROM jobs WHERE node_id = $1::uuid AND status = 'queued'
 		ORDER BY created_at LIMIT $2`, nodeID, limit)
 	if err != nil {
@@ -117,7 +117,7 @@ func (a *httpAPI) handleJobsPoll(w http.ResponseWriter, r *http.Request) {
 	out := []job{}
 	for rows.Next() {
 		var j job
-		if err := rows.Scan(&j.JobID, &j.TradeID, &j.NodeID, &j.Symbol, &j.BuyerID, &j.SellerID, &j.Workload); err != nil {
+		if err := rows.Scan(&j.JobID, &j.TradeID, &j.NodeID, &j.Symbol, &j.BuyerID, &j.SellerID, &j.Workload, &j.Quantity); err != nil {
 			writeError(w, http.StatusInternalServerError, "scan failed")
 			return
 		}

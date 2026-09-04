@@ -1,10 +1,13 @@
 package main
 
-// Workload-job lifecycle (Phase 4). One job per trade: settlement holds the
-// buyer's escrow (trade_ledger PENDING) and queues a job for a seller node;
-// the node polls the job control plane (this service's HTTP) and reports
-// status transitions with an Ed25519-signed request. On COMPLETED the escrow
-// is released to the seller; on FAILED the buyer is refunded and a
+// Workload-job lifecycle (Phase 4 + deferred execution). One job per trade:
+// settlement holds the buyer's escrow (trade_ledger PENDING) and creates a
+// HELD job — an allocation the buyer owns. The buyer either runs it
+// (POST /v1/jobs/{id}/run -> queued; the node polls this service's HTTP and
+// reports status with an Ed25519-signed request) or resells it (a SELL fill
+// by a non-operator transfers held jobs to the new buyer and pays the
+// reseller at once; allocations.go). On COMPLETED the original seller's
+// escrow is released; on FAILED the buyer is refunded and a
 // SettlementFailed event goes out (same pattern as insufficient funds).
 //
 // Scheduling ownership: settlement (not order) because it already consumes
@@ -62,6 +65,7 @@ type job struct {
 	BuyerID  string `json:"buyer_id"`
 	SellerID string `json:"seller_id"`
 	Workload json.RawMessage `json:"workload"`
+	Quantity int64           `json:"quantity"`
 	Status   string          `json:"-"`
 }
 
@@ -69,52 +73,23 @@ type job struct {
 func gpuPart(symbol string) string { return strings.SplitN(symbol, ":", 2)[0] }
 
 // findExecutorNode picks the most recently registered active node offering
-// the symbol's GPU type. Newest-first: dev loops register a fresh node per
-// run, and the newest registration is the likeliest to be alive.
-func (s *settlementService) findExecutorNode(ctx context.Context, symbol string) (string, error) {
+// the symbol's GPU type, preferring the seller's own nodes (primary supply
+// runs on the seller's hardware). Newest-first: dev loops register a fresh
+// node per run, and the newest registration is the likeliest to be alive.
+func (s *settlementService) findExecutorNode(ctx context.Context, symbol, sellerID string) (string, error) {
 	var nodeID string
 	err := s.db.QueryRowContext(ctx, `
 		SELECT sn.node_id::text
 		FROM seller_nodes sn
 		JOIN gpu_types g ON g.id = sn.gpu_type_id
 		WHERE g.name = $1 AND sn.status = 'active'
-		ORDER BY sn.created_at DESC
-		LIMIT 1`, gpuPart(symbol),
+		ORDER BY (sn.seller_id::text = $2) DESC, sn.created_at DESC
+		LIMIT 1`, gpuPart(symbol), sellerID,
 	).Scan(&nodeID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	return nodeID, err
-}
-
-// findBackingNode handles resale routing. If the seller operates an active
-// node for the symbol's GPU type this is primary supply: ("", false, nil) and
-// the caller picks an executor. Otherwise the seller is reselling hours they
-// hold, and the job belongs on the node that executed their most recent
-// purchase of this symbol: (node, true, nil). ("", true, nil) means a resale
-// with no traceable backing node; the caller falls back to any live node.
-func (s *settlementService) findBackingNode(ctx context.Context, sellerID, symbol string) (string, bool, error) {
-	var operates int
-	if err := s.db.QueryRowContext(ctx, `
-		SELECT count(*) FROM seller_nodes sn
-		JOIN gpu_types g ON g.id = sn.gpu_type_id
-		WHERE sn.seller_id::text = $1 AND g.name = $2 AND sn.status = 'active'`,
-		sellerID, gpuPart(symbol)).Scan(&operates); err != nil {
-		return "", false, err
-	}
-	if operates > 0 {
-		return "", false, nil
-	}
-	var nodeID sql.NullString
-	err := s.db.QueryRowContext(ctx, `
-		SELECT j.node_id::text FROM jobs j
-		JOIN seller_nodes sn ON sn.node_id = j.node_id AND sn.status = 'active'
-		WHERE j.buyer_id = $1 AND j.symbol = $2
-		ORDER BY j.created_at DESC LIMIT 1`, sellerID, symbol).Scan(&nodeID)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return "", true, err
-	}
-	return nodeID.String, true, nil
 }
 
 // createJobForTrade holds the buyer's escrow and creates the queued job +
@@ -132,17 +107,20 @@ func (s *settlementService) createJobForTrade(ctx context.Context, t *TradeExecu
 		buyerID, sellerID = t.MakerUserID, t.TakerUserID
 	}
 
-	// Resale: a seller with no node of their own is passing on hours they
-	// bought, so the job goes to the node that backed their holding (the
-	// allocation transfers with the sale). Primary supply picks a live node.
-	nodeID, resale, err := s.findBackingNode(ctx, sellerID, t.Symbol)
+	// Resale: the seller holds unrun allocations of this symbol (risk lets a
+	// non-operator sell only against those) — transfer them instead of
+	// creating a new job. Primary supply creates a HELD job on a live node.
+	held, err := s.heldQuantity(ctx, sellerID, t.Symbol)
 	if err != nil {
-		return fmt.Errorf("find backing node: %w", err)
+		return fmt.Errorf("held quantity: %w", err)
 	}
-	if nodeID == "" {
-		if nodeID, err = s.findExecutorNode(ctx, t.Symbol); err != nil {
-			return fmt.Errorf("find executor node: %w", err)
-		}
+	if held >= t.Quantity {
+		return s.transferAllocation(ctx, t, buyerID, sellerID, totalCost)
+	}
+
+	nodeID, err := s.findExecutorNode(ctx, t.Symbol, sellerID)
+	if err != nil {
+		return fmt.Errorf("find executor node: %w", err)
 	}
 
 	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
@@ -221,12 +199,13 @@ func (s *settlementService) createJobForTrade(ctx context.Context, t *TradeExecu
 		Symbol:   t.Symbol,
 		BuyerID:  buyerID,
 		SellerID: sellerID,
+		Quantity: t.Quantity,
 		Workload: json.RawMessage(fmt.Sprintf(`{"mock_duration_seconds": %d}`, defaultMockJobSeconds)),
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO jobs (job_id, trade_id, node_id, symbol, buyer_id, seller_id, workload)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		j.JobID, j.TradeID, j.NodeID, j.Symbol, j.BuyerID, j.SellerID, j.Workload,
+		INSERT INTO jobs (job_id, trade_id, node_id, symbol, buyer_id, seller_id, workload, quantity, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'held')`,
+		j.JobID, j.TradeID, j.NodeID, j.Symbol, j.BuyerID, j.SellerID, j.Workload, j.Quantity,
 	); err != nil {
 		return fmt.Errorf("insert job: %w", err)
 	}
@@ -234,13 +213,8 @@ func (s *settlementService) createJobForTrade(ctx context.Context, t *TradeExecu
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
-	kind := "primary"
-	if resale {
-		kind = "resale"
-	}
-	log.Printf("trade %s HELD (%s): %d cents from %s; job %s queued for node %s",
-		t.TradeID, kind, totalCost, buyerID, j.JobID, nodeID)
-	s.emitJobEvent("ASSIGNED", j, "")
+	log.Printf("trade %s HELD: %d cents from %s; allocation %s (%d h) held on node %s",
+		t.TradeID, totalCost, buyerID, j.JobID, j.Quantity, nodeID)
 	return nil
 }
 
@@ -283,23 +257,28 @@ func (s *settlementService) reportJobCompleted(ctx context.Context, jobID, nodeI
 		return err
 	}
 
+	// A split allocation (partial resale) has several jobs on one trade; the
+	// first completion settles the trade and pays the original seller in
+	// full, later ones find nothing PENDING and release nothing more.
 	var total int64
-	if err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE trade_ledger SET status = 'SETTLED', settled_at = now()
 		WHERE trade_id = $1 AND status = 'PENDING'
 		RETURNING total_cost`, j.TradeID,
-	).Scan(&total); err != nil {
+	).Scan(&total)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("settle ledger: %w", err)
 	}
-
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO escrow_accounts (user_id, balance, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (user_id) DO UPDATE
-			SET balance = escrow_accounts.balance + $2, updated_at = now()`,
-		j.SellerID, total,
-	); err != nil {
-		return err
+	if total > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO escrow_accounts (user_id, balance, updated_at)
+			VALUES ($1, $2, now())
+			ON CONFLICT (user_id) DO UPDATE
+				SET balance = escrow_accounts.balance + $2, updated_at = now()`,
+			j.SellerID, total,
+		); err != nil {
+			return err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -338,23 +317,27 @@ func (s *settlementService) reportJobFailed(ctx context.Context, jobID, nodeID, 
 	}
 
 	var total int64
-	if err := tx.QueryRowContext(ctx, `
+	err = tx.QueryRowContext(ctx, `
 		UPDATE trade_ledger SET status = 'FAILED', failure_reason = $2
 		WHERE trade_id = $1 AND status = 'PENDING'
 		RETURNING total_cost`, j.TradeID, "JOB_FAILED: "+reason,
-	).Scan(&total); err != nil {
+	).Scan(&total)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("fail ledger: %w", err)
 	}
 
-	// Refund the hold.
-	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO escrow_accounts (user_id, balance, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (user_id) DO UPDATE
-			SET balance = escrow_accounts.balance + $2, updated_at = now()`,
-		j.BuyerID, total,
-	); err != nil {
-		return err
+	// Refund the hold to whoever holds the allocation now (the current
+	// buyer — a resold allocation refunds the reseller's buyer).
+	if total > 0 {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO escrow_accounts (user_id, balance, updated_at)
+			VALUES ($1, $2, now())
+			ON CONFLICT (user_id) DO UPDATE
+				SET balance = escrow_accounts.balance + $2, updated_at = now()`,
+			j.BuyerID, total,
+		); err != nil {
+			return err
+		}
 	}
 
 	if err := tx.Commit(); err != nil {

@@ -45,21 +45,21 @@ func TestAbs64(t *testing.T) {
 	}
 }
 
-func TestNakedSpotSell(t *testing.T) {
+func TestSpotSellAllowed(t *testing.T) {
 	cases := []struct {
-		kind, side string
-		projected  int64
-		want       bool
+		operator  bool
+		held, qty int64
+		want      bool
 	}{
-		{KindSpot, SideSell, -1, true},   // selling more than held
-		{KindSpot, SideSell, 0, false},   // exact resale of held hours
-		{KindSpot, SideSell, 3, false},   // partial resale
-		{KindSpot, SideBuy, -5, false},   // buys never naked
-		{KindFutures, SideSell, -1, false}, // futures short is margin-governed
+		{true, 0, 5, true},   // node operator: primary supply
+		{false, 5, 5, true},  // exact resale of held hours
+		{false, 8, 3, true},  // partial resale
+		{false, 2, 3, false}, // selling more than held
+		{false, 0, 1, false}, // naked
 	}
 	for _, c := range cases {
-		if got := nakedSpotSell(c.kind, c.side, c.projected); got != c.want {
-			t.Errorf("nakedSpotSell(%s,%s,%d)=%v want %v", c.kind, c.side, c.projected, got, c.want)
+		if got := spotSellAllowed(c.operator, c.held, c.qty); got != c.want {
+			t.Errorf("spotSellAllowed(%v,%d,%d)=%v want %v", c.operator, c.held, c.qty, got, c.want)
 		}
 	}
 }

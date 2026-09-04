@@ -240,14 +240,18 @@ func (s *riskService) CheckMargin(ctx context.Context, in MarginCheck) (MarginRe
 	}
 
 	// Spot SELL is either primary supply (the user operates an active node
-	// for this GPU type and may go short) or a resale of hours they hold
-	// (projected position must stay >= 0). Anything else is a naked sell.
-	if nakedSpotSell(kind, in.Side, projected) {
+	// for this GPU type) or a resale of allocations they hold unrun
+	// (settlement's jobs, status held). Anything else is a naked sell.
+	if kind == KindSpot && in.Side == SideSell {
 		operator, err := s.isNodeOperator(ctx, in.UserID, in.Symbol)
 		if err != nil {
 			return MarginResult{}, err
 		}
-		if !operator {
+		held, err := s.heldAllocation(ctx, in.UserID, in.Symbol)
+		if err != nil {
+			return MarginResult{}, err
+		}
+		if !spotSellAllowed(operator, held, in.Quantity) {
 			return MarginResult{
 				Allowed:           false,
 				ProjectedPosition: projected,
@@ -286,10 +290,26 @@ func (s *riskService) CheckMargin(ctx context.Context, in MarginCheck) (MarginRe
 	return res, nil
 }
 
-// nakedSpotSell reports whether a spot order would take the user short —
-// allowed only for node operators (primary supply); pure for testing.
-func nakedSpotSell(kind, side string, projected int64) bool {
-	return kind == KindSpot && side == SideSell && projected < 0
+// spotSellAllowed: node operators sell freely (primary supply); everyone
+// else may sell only hours they hold unrun. Pure for testing.
+func spotSellAllowed(operator bool, held, qty int64) bool {
+	return operator || held >= qty
+}
+
+// heldAllocation is the user's unrun GPU-hours for a symbol (settlement's
+// jobs table, shared DB). Missing table => 0.
+func (s *riskService) heldAllocation(ctx context.Context, userID, symbol string) (int64, error) {
+	var q sql.NullInt64
+	err := s.db.QueryRowContext(ctx, `
+		SELECT COALESCE(SUM(quantity), 0) FROM jobs
+		WHERE buyer_id = $1 AND symbol = $2 AND status = 'held'`, userID, symbol).Scan(&q)
+	if err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			return 0, nil
+		}
+		return 0, err
+	}
+	return q.Int64, nil
 }
 
 // GetPosition returns a user's position in a contract.

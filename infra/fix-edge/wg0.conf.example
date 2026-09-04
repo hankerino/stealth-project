@@ -1,0 +1,11 @@
+# VPS side (listener). The Render jump container is the peer and connects out.
+[Interface]
+Address = 10.77.0.1/24
+ListenPort = 51820
+PrivateKey = <vps private key>
+
+[Peer]
+# Render jump container
+PublicKey = <jump public key>
+AllowedIPs = 10.77.0.2/32
+PersistentKeepalive = 25

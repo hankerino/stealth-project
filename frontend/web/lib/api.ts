@@ -39,6 +39,17 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 export type GpuType = { id: number; name: string; vram_gb: number };
 export type Region = { code: string; name: string };
+export type FuturesContract = {
+  id: number;
+  gpu_type_id: number;
+  region_code: string;
+  delivery_date: string;
+  tick_size: number;
+  contract_size: number;
+  status: string;
+  symbol: string;
+};
+export const isFuturesSymbol = (sym: string) => sym.includes(":FUT:");
 
 export type Order = {
   id: string;
@@ -59,6 +70,20 @@ export type Order = {
 };
 
 export type Balance = { user_id: string; balance: number };
+
+/** A purchased allocation (settlement job). held = yours to run or resell. */
+export type Allocation = {
+  job_id: string;
+  trade_id: string;
+  symbol: string;
+  node_id: string;
+  quantity: number;
+  status: "held" | "queued" | "running" | "completed" | "failed";
+  status_reason: string | null;
+  workload: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+};
 
 /** Net GPU-hours per market (risk service). Positive = hours held (resellable),
  *  negative = hours supplied as a node operator. contract_id 0 = spot. */
@@ -101,6 +126,19 @@ export async function accountRole(): Promise<string> {
   try {
     const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
     return typeof payload.account_role === "string" ? payload.account_role : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Account id (JWT `sub`) — what a seller puts in the node-agent's SELLER_ID. */
+export async function accountIdFromToken(): Promise<string> {
+  const { data } = await supabaseBrowser().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.sub === "string" ? payload.sub : "";
   } catch {
     return "";
   }

@@ -1,40 +1,48 @@
-# Resale — selling GPU-hours you hold
+# Allocations, deferred execution and resale
 
-Spot positions (risk service, `positions` with `contract_id = 0`) are the
-inventory ledger: every fill moves `net_quantity` +qty to the buyer and −qty
-to the seller, **per symbol** (migration `risk/0002`; the original PK
-collapsed all spot markets into one row).
+A spot BUY no longer executes immediately. Settlement holds the buyer's
+escrow (trade `PENDING`) and creates a **held job** — an allocation of
+`quantity` GPU-hours on a node (the seller's own node when they operate
+one). The buyer then either:
 
-## Rule (risk `CheckMargin`, now called for spot orders too)
+- **runs it** — `POST /v1/jobs/{id}/run` (optional `{"workload": {...}}`):
+  `held → queued`; the node polls, executes, reports `running/completed`.
+  On `completed` the original seller is paid from the hold and the trade is
+  `SETTLED`. If the allocation's node went away it is reassigned to a live
+  node of the same GPU type at run time.
+- **resells it** — places a SELL on the same market. Risk allows a
+  non-operator to sell only up to their unrun held hours
+  (`INSUFFICIENT_HELD_QUANTITY` otherwise). On fill, settlement
+  **transfers** the held jobs (oldest first, splitting the last one on a
+  partial resale) to the new buyer and pays the reseller immediately
+  (resale trade `SETTLED`). The original trade stays `PENDING` until the
+  new holder runs it; the original seller is paid then.
 
-A spot SELL is accepted when either
-- the seller operates an active node for that GPU type (`seller_nodes`),
-  i.e. primary supply — they may go short; or
-- the seller's projected position stays ≥ 0, i.e. they are reselling hours
-  they bought.
+Node operators (an active `seller_nodes` row for the GPU type) may sell
+freely — that is primary supply.
 
-Otherwise the order is rejected `402 INSUFFICIENT_HELD_QUANTITY` (no naked
-capacity sells — this also closes the pre-existing gap where anyone could
-sell capacity they did not have).
+## Where things live
 
-## Execution (settlement `createJobForTrade`)
+| Concern | Service | Storage |
+|---|---|---|
+| Held / queued / running / done | settlement (`allocations.go`, `jobs.go`) | `jobs` (status `held` added, `quantity`; migration `settlement/0005`) |
+| Sell-side rule | risk `CheckMargin` (spot) | reads `jobs` (shared DB) + `seller_nodes` |
+| Inventory accounting (net fills) | risk | `positions` per (user, contract, symbol) |
+| Buyer UI | web Portfolio → **Allocations** (Run / Resell), trade ticket hint | `GET /v1/allocations` |
 
-On `TradeExecuted`, settlement asks whether the seller is a node operator.
-If not, the trade is a resale: the workload job is routed to the node that
-executed the seller's most recent purchase of that symbol (the allocation
-transfers with the sale); if none is traceable, any live node of the GPU
-type. Escrow flow is unchanged — buyer's funds are held, and released to the
-(re)seller when the job completes.
+## Money flow example
 
-## Web
+A (operator) sells 2 h to B for $100/h: B's $200 held, job J(2h) held by B.
+B resells 1 h to C for $120: C pays $120 → B immediately (trade SETTLED);
+J splits into J(1h, B) and J'(1h, C), both still on trade A→B.
+C runs J' → completes → A is paid the full $200 hold, A→B trade SETTLED.
+B later runs J → completes → nothing more to release (already settled).
 
-- Portfolio → **Holdings**: net hours per market with a Resell link.
-- Trade view → SELL ticket shows what you hold; the rejection reason
-  surfaces inline.
+## Known simplifications
 
-## Known limitation
-
-Purchased hours are executed immediately by the mock executor, so a "held"
-position is an accounting quantity rather than an unconsumed reservation.
-Deferred execution (buy → hold → run-or-resell) is the follow-up; the ledger
-and the sell-side rule above are designed for it.
+- A split allocation pays the original seller in full on the first
+  completion (not pro-rata per part).
+- Held allocations never expire; funds stay held until the holder runs the
+  job. Expiry/refund policy is a product decision to make before real money.
+- Failure of a transferred job refunds the *original* hold to the current
+  holder (not what they paid the reseller).

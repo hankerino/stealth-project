@@ -130,6 +130,8 @@ func main() {
 	mux.HandleFunc("/v1/mtm/run", api.handleMTMRun)
 	mux.HandleFunc("/v1/jobs/poll", api.handleJobsPoll)
 	mux.HandleFunc("/v1/jobs/{id}/status", api.handleJobStatus)
+	mux.HandleFunc("/v1/jobs/{id}/run", api.handleJobRun)   // buyer (gateway)
+	mux.HandleFunc("/v1/allocations", api.handleAllocations) // buyer (gateway)
 
 	addr := envOr("LISTEN_ADDR", ":8083")
 	srv := &http.Server{Addr: addr, Handler: mux}
