@@ -338,8 +338,10 @@ func (s *riskService) isNodeOperator(ctx context.Context, userID, symbol string)
 	return n > 0, nil
 }
 
-// applyTrade updates both counterparties' positions from a fill and emits
-// PositionUpdated for each. Buyer goes long (+qty), seller short (-qty).
+// applyTrade updates both counterparties' positions from a fill in ONE
+// transaction, idempotently (risk_applied_trades keyed by trade_id: a Kafka
+// redelivery is a no-op), then emits PositionUpdated for each leg. Buyer
+// goes long (+qty), seller short (-qty).
 func (s *riskService) applyTrade(ctx context.Context, t *TradeExecuted) error {
 	contractID, _ := s.resolveContract(ctx, t.Symbol)
 	params := s.loadRiskParams(ctx, contractID)
@@ -351,27 +353,50 @@ func (s *riskService) applyTrade(ctx context.Context, t *TradeExecuted) error {
 		buyerID, sellerID = t.MakerUserID, t.TakerUserID
 	}
 
-	if err := s.updateOne(ctx, buyerID, contractID, t.Symbol, +t.Quantity, t.PriceCents, params); err != nil {
-		return err
-	}
-	if err := s.updateOne(ctx, sellerID, contractID, t.Symbol, -t.Quantity, t.PriceCents, params); err != nil {
-		return err
-	}
-	return nil
-}
-
-// updateOne applies a signed fill to one user's position (weighted-average
-// entry accounting) inside a transaction, then emits PositionUpdated.
-func (s *riskService) updateOne(ctx context.Context, userID string, contractID int64, symbol string, signedQty, priceCents int64, params riskParams) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	pos, err := s.loadPosition(ctx, tx, userID, contractID, symbol)
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO risk_applied_trades (trade_id) VALUES ($1::uuid) ON CONFLICT DO NOTHING`, t.TradeID)
 	if err != nil {
 		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		log.Printf("risk: trade %s already applied — skipping (redelivery)", t.TradeID)
+		return nil
+	}
+
+	buyer, err := s.updateOne(ctx, tx, buyerID, contractID, t.Symbol, +t.Quantity, t.PriceCents, params)
+	if err != nil {
+		return err
+	}
+	seller, err := s.updateOne(ctx, tx, sellerID, contractID, t.Symbol, -t.Quantity, t.PriceCents, params)
+	if err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.emitPositionUpdated(buyerID, contractID, t.Symbol, buyer.NetQuantity, buyer.AvgEntryPriceCents, buyer.MarginPostedCents)
+	s.emitPositionUpdated(sellerID, contractID, t.Symbol, seller.NetQuantity, seller.AvgEntryPriceCents, seller.MarginPostedCents)
+	return nil
+}
+
+// sqlExecQueryer is what updateOne needs from a *sql.Tx.
+type sqlExecQueryer interface {
+	sqlQueryer
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// updateOne applies a signed fill to one user's position (weighted-average
+// entry accounting) within the caller's transaction and returns the new row.
+func (s *riskService) updateOne(ctx context.Context, tx sqlExecQueryer, userID string, contractID int64, symbol string, signedQty, priceCents int64, params riskParams) (Position, error) {
+	pos, err := s.loadPosition(ctx, tx, userID, contractID, symbol)
+	if err != nil {
+		return Position{}, err
 	}
 	newNet := pos.NetQuantity + signedQty
 	newAvg := nextAvgEntry(pos.NetQuantity, pos.AvgEntryPriceCents, signedQty, newNet, priceCents)
@@ -391,14 +416,9 @@ func (s *riskService) updateOne(ctx context.Context, userID string, contractID i
 			    updated_at = now()`,
 		userID, contractID, symbol, newNet, newAvg, margin,
 	); err != nil {
-		return err
+		return Position{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-
-	s.emitPositionUpdated(userID, contractID, symbol, newNet, newAvg, margin)
-	return nil
+	return Position{UserID: userID, ContractID: contractID, Symbol: symbol, NetQuantity: newNet, AvgEntryPriceCents: newAvg, MarginPostedCents: margin}, nil
 }
 
 // nextAvgEntry computes the new average entry price after a signed fill.
