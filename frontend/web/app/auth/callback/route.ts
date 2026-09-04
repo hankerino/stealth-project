@@ -21,5 +21,10 @@ export async function GET(req: NextRequest) {
     );
     await supabase.auth.exchangeCodeForSession(code);
   }
-  return NextResponse.redirect(new URL(next, req.url));
+  // Behind Render's proxy req.url is the internal address (localhost:10000);
+  // build the redirect from the forwarded host so users land on the public site.
+  const proto = req.headers.get("x-forwarded-proto") ?? "https";
+  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? "exchange.hqube.co";
+  const safeNext = next.startsWith("/") && !next.startsWith("//") ? next : "/";
+  return NextResponse.redirect(`${proto}://${host}${safeNext}`);
 }
