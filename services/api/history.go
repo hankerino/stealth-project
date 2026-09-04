@@ -141,7 +141,7 @@ func (h *historyAPI) handleTradesHistorical(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	rows, err := h.db.QueryContext(r.Context(), `
-		SELECT trade_id, symbol, buyer_id, seller_id, price_cents, quantity, total_cost, created_at
+		SELECT trade_id, symbol, price_cents, quantity, total_cost, created_at
 		FROM trade_ledger
 		WHERE symbol = $1 AND status = 'SETTLED' AND created_at >= $2 AND created_at < $3
 		ORDER BY created_at DESC
@@ -153,15 +153,17 @@ func (h *historyAPI) handleTradesHistorical(w http.ResponseWriter, r *http.Reque
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var tradeID, sym, buyer, seller string
+		var tradeID, sym string
 		var price, qty, total int64
 		var createdAt time.Time
-		if err := rows.Scan(&tradeID, &sym, &buyer, &seller, &price, &qty, &total, &createdAt); err != nil {
+		if err := rows.Scan(&tradeID, &sym, &price, &qty, &total, &createdAt); err != nil {
 			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "scan failed"})
 			return
 		}
+		// Public tape: no counterparty identities (buyer_id/seller_id stay
+		// in trade_ledger for the parties' own order history and admin).
 		out = append(out, map[string]any{
-			"trade_id": tradeID, "symbol": sym, "buyer_id": buyer, "seller_id": seller,
+			"trade_id": tradeID, "symbol": sym,
 			"price_cents": price, "quantity": qty, "total_cost": total,
 			"executed_at": createdAt.UTC().Format(time.RFC3339),
 		})

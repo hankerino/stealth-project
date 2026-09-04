@@ -6,6 +6,7 @@ import { useMarketData } from "@/lib/use-market-data";
 import { cents, when } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner, btnCls, inputCls } from "./ui";
 import { OrdersTable } from "./orders-table";
+import { CandleChart } from "./price-chart";
 
 export function TradeView({ symbol }: { symbol: string }) {
   const { gpu, region } = splitSymbol(symbol);
@@ -75,6 +76,8 @@ export function TradeView({ symbol }: { symbol: string }) {
           )}
         </Card>
       </div>
+
+      <CandleChart symbol={symbol} refreshKey={trades.length} />
 
       <Card title="My orders in this market">
         <OrdersTable orders={orders} onChanged={refresh} />

@@ -6,6 +6,7 @@ import { api, symbolFor, type GpuType, type Region } from "@/lib/api";
 import { Card, ErrorBanner } from "./ui";
 import { useMarketData } from "@/lib/use-market-data";
 import { cents } from "@/lib/format";
+import { IndexChart } from "./price-chart";
 
 function Tile({ gpu, region }: { gpu: GpuType; region: Region }) {
   const sym = symbolFor(gpu.name, region.code);
@@ -51,6 +52,7 @@ export function Markets() {
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {gpus.flatMap((g) => regions.map((r) => <Tile key={`${g.id}-${r.code}`} gpu={g} region={r} />))}
       </div>
+      {gpus.length > 0 && <IndexChart gpuTypes={gpus.map((g) => g.name)} />}
     </div>
   );
 }
