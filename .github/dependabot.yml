@@ -1,0 +1,18 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /frontend/web
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+  - package-ecosystem: gomod
+    directories: ["/services/api", "/services/catalog", "/services/order", "/services/settlement", "/services/risk", "/services/compliance", "/services/node-agent", "/scripts/migrate"]
+    schedule: { interval: weekly }
+  - package-ecosystem: cargo
+    directories: ["/services/fix-gateway", "/services/telemetry-verifier", "/services/market-data", "/services/matching-engine"]
+    schedule: { interval: weekly }
+  - package-ecosystem: pip
+    directory: /services/index-engine
+    schedule: { interval: weekly }
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly }

@@ -130,7 +130,7 @@ only these are dashboard/API-managed. Audit 2026-09-04:
 | cte-telemetry-verifier, cte-node-agent | `REGISTRATION_TOKEN` | set (same value on both) |
 | cte-node-agent | `SELLER_ID` | set (founder = hankquin@gmail.com in the shared pool, `af826a27…`) |
 | fix-gateway | `GATEWAY_SHARED_SECRET`, `FIX_CLIENTS` | set 2026-09-04 (secret rotated everywhere via API) |
-| cte-risk, cte-compliance | `GATEWAY_SHARED_SECRET` | **unset** — the check is skipped; acceptable only because both are private services with no public URL. Set it (same value as cte-api) if either ever becomes `type: web`. |
+| cte-risk, cte-compliance | `GATEWAY_SHARED_SECRET` | set 2026-09-04 (rotated everywhere) — the check is skipped; acceptable only because both are private services with no public URL. Set it (same value as cte-api) if either ever becomes `type: web`. |
 
 ## Known open items (unchanged by this blueprint)
 
@@ -141,11 +141,14 @@ only these are dashboard/API-managed. Audit 2026-09-04:
    token-gated (`X-Admin-Token` / `ADMIN_TOKEN`, set in the dashboard).
 3. fix-gateway batch 3b (gRPC forwarding + ExecutionReports from Kafka)
    not implemented.
-4. Every push redeploys every service (single repo, no path filters in the
+4. `cte-postgres` blocks all internet inbound since 2026-09-04 (services use
+   the private network). The Render MCP's `query_render_postgres` therefore no
+   longer works — use the Render Shell / `render psql` for ad-hoc queries.
+5. Every push redeploys every service (single repo, no path filters in the
    Blueprint). Rust services rebuild for ~10 min each time; the node-agent
    re-registers a fresh `seller_nodes` row per deploy (stale rows stay
    `active` with heartbeats gone — harmless, but noisy).
-5. `compliance-alerts` topic must be created on Redpanda by hand (like the
+6. `compliance-alerts` topic must be created on Redpanda by hand (like the
    others); alerts persist to Postgres regardless.
 
 ## First deploy checklist (Render dashboard)
