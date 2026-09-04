@@ -117,6 +117,14 @@ for every service it touches. "Done" = CI green.
       updated; demo node re-registered). stealth-project-auth project retired
       (not deleted). Old test data keyed by d9134632… stays as orphan history.
 - [ ] Delete the stealth-project-auth Supabase project once nothing references it.
+- [x] Security pass 1 (2026-09-04): Postgres internet inbound blocked; CSP/HSTS/
+      frame/referrer/permissions headers on cte-web; gitleaks + govulncheck +
+      cargo-audit + npm-audit + pip-audit workflow; Dependabot; Go 1.22→1.26,
+      Next 15→16 (postcss advisories). docs/SECURITY.md has the gap table.
+- [ ] Security pass 2: MFA (admin + withdrawals), withdrawal controls, private
+      order/catalog services (maintenance window), Cloudflare WAF, admin audit
+      log, per-seller registration tokens, nonce CSP. Triage Dependabot PRs
+      (22 opened; majors like typescript 7 need review, do not auto-merge).
 
 ## Next (after 2026-09-04, round 2)
 - [x] Deferred execution: buy → held → run or resell (settlement allocations.go,
