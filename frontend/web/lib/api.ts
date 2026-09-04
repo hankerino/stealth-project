@@ -131,6 +131,19 @@ export async function accountRole(): Promise<string> {
   }
 }
 
+/** Account id (JWT `sub`) — what a seller puts in the node-agent's SELLER_ID. */
+export async function accountIdFromToken(): Promise<string> {
+  const { data } = await supabaseBrowser().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.sub === "string" ? payload.sub : "";
+  } catch {
+    return "";
+  }
+}
+
 export const symbolFor = (gpu: string, region: string) => `${gpu}:${region}`;
 export const splitSymbol = (sym: string) => {
   const [gpu, region] = sym.split(":");

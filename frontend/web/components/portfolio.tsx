@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { accountRole, api, ApiError, type Balance, type EscrowHistory, type Order, type Position } from "@/lib/api";
+import { accountIdFromToken, accountRole, api, ApiError, type Balance, type EscrowHistory, type Order, type Position } from "@/lib/api";
 import { cents } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner } from "./ui";
 import { OrdersTable } from "./orders-table";
@@ -15,6 +15,7 @@ export function Portfolio() {
   const [history, setHistory] = useState<EscrowHistory | null>(null);
   const [positions, setPositions] = useState<Position[]>([]);
   const [role, setRole] = useState("");
+  const [accountId, setAccountId] = useState("");
   const [unverified, setUnverified] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -41,6 +42,7 @@ export function Portfolio() {
   useEffect(() => {
     void refresh();
     void accountRole().then(setRole);
+    void accountIdFromToken().then(setAccountId);
     // Stripe Checkout returns here with ?deposit=success|cancelled. The credit
     // arrives via webhook, usually before the redirect lands; poll briefly.
     const q = new URLSearchParams(window.location.search).get("deposit");
@@ -61,7 +63,10 @@ export function Portfolio() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-semibold">Portfolio</h1>
+      <div className="flex items-baseline justify-between">
+        <h1 className="text-xl font-semibold">Portfolio</h1>
+        {accountId && <span className="text-xs text-zinc-500">Account id <span className="select-all font-mono text-zinc-300">{accountId}</span></span>}
+      </div>
       {unverified && <VerifyBanner />}
       <ErrorBanner error={error} />
       {notice && (

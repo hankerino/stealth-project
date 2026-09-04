@@ -82,8 +82,9 @@ already in the environment.
   dials `fix-gateway:9878` over a Tailscale/WireGuard link into Render — or
   simpler, run the FIX gateway itself on that VPS pointed at cte-order's
   gRPC; (b) Cloudflare Spectrum (paid) in front of that relay for TLS +
-  DDoS; (c) the AWS NLB path in `infra/terraform` once funded. Batch 3b
-  (gRPC forwarding + ExecutionReports) must land before any of these.
+  DDoS; (c) the AWS NLB path in `infra/terraform` once funded. Relay kit +
+  runbook: `infra/fix-edge/`. Batch 3b (order forwarding + ExecutionReports)
+  must land before any of these.
 - **`numInstances` must stay 1** on matching-engine and index-engine.
 
 ## Not hosted / stays off Render
