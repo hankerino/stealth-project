@@ -152,7 +152,7 @@ fn side_from_fix(v: Option<&str>) -> String {
     .to_string()
 }
 
-fn fix_from_side(side: &str) -> &'static str {
+pub fn fix_from_side(side: &str) -> &'static str {
     match side {
         "BUY" => "1",
         "SELL" => "2",
