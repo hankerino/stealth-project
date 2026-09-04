@@ -11,7 +11,7 @@ import { IndexChart } from "./price-chart";
 function FuturesTile({ c }: { c: FuturesContract }) {
   const { quote, status } = useMarketData(c.symbol);
   return (
-    <Link href={`/trade/${encodeURIComponent(c.symbol)}`} className="block rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 hover:border-sky-700">
+    <Link href={`/trade/${encodeURIComponent(c.symbol)}`} className="block rounded-lg border border-white/10 bg-white/[0.03] p-4 hover:border-brand">
       <div className="flex items-baseline justify-between">
         <span className="font-mono text-sm">{c.symbol}</span>
         <span className={`text-[10px] uppercase ${status === "live" ? "text-emerald-400" : "text-zinc-500"}`}>{status}</span>
@@ -30,7 +30,7 @@ function Tile({ gpu, region }: { gpu: GpuType; region: Region }) {
   const sym = symbolFor(gpu.name, region.code);
   const { quote, status } = useMarketData(sym);
   return (
-    <Link href={`/trade/${encodeURIComponent(sym)}`} className="block rounded-lg border border-zinc-800 bg-zinc-900/50 p-4 hover:border-emerald-700">
+    <Link href={`/trade/${encodeURIComponent(sym)}`} className="block rounded-lg border border-white/10 bg-white/[0.03] p-4 hover:border-brand">
       <div className="flex items-baseline justify-between">
         <span className="font-mono text-sm">{sym}</span>
         <span className={`text-[10px] uppercase ${status === "live" ? "text-emerald-400" : "text-zinc-500"}`}>{status}</span>
