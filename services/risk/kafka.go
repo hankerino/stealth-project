@@ -140,17 +140,19 @@ type kafkaProducer struct {
 }
 
 func newKafkaProducer(brokers string, tlsEnabled bool) *kafkaProducer {
-	var transport *kafka.Transport
-	if tlsEnabled {
-		transport = &kafka.Transport{TLS: buildTLSConfig(), DialTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
-	}
-	return &kafkaProducer{w: &kafka.Writer{
+	w := &kafka.Writer{
 		Addr:         kafka.TCP(strings.Split(brokers, ",")...),
 		Topic:        positionTopic,
 		Balancer:     &kafka.Hash{},
 		RequiredAcks: kafka.RequireAll,
-		Transport:    transport,
-	}}
+	}
+	if tlsEnabled {
+		// Only set Transport when TLS is on: a nil *Transport stored in the
+		// interface field nil-derefs in grabPool on first publish (prod
+		// 2026-09-04, first live PositionUpdated).
+		w.Transport = &kafka.Transport{TLS: buildTLSConfig(), DialTimeout: 10 * time.Second, IdleTimeout: 30 * time.Second}
+	}
+	return &kafkaProducer{w: w}
 }
 
 func (p *kafkaProducer) publish(key string, payload []byte) error {
