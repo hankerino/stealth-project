@@ -6,6 +6,7 @@ import { cents } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner } from "./ui";
 import { OrdersTable } from "./orders-table";
 import { AddFunds, AdminFunds, FundsHistory, Withdraw } from "./funds";
+import { Holdings } from "./holdings";
 
 export function Portfolio() {
   const [balance, setBalance] = useState<Balance | null>(null);
@@ -75,6 +76,7 @@ export function Portfolio() {
         <Withdraw disabled={unverified || !balance || balance.balance <= 0} balance={balance?.balance ?? 0} onChanged={refresh} />
       </div>
       {role === "admin" && <AdminFunds onChanged={refresh} />}
+      <Holdings refreshKey={orders} />
       <Card title="Deposits & payouts"><FundsHistory history={history} /></Card>
       <Card title={`Open orders (${open.length})`}><OrdersTable orders={open} onChanged={refresh} showSymbol /></Card>
       <Card title="Order history"><OrdersTable orders={orders} onChanged={refresh} showSymbol /></Card>

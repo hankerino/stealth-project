@@ -71,6 +71,8 @@ services:
       # match cte-api's GATEWAY_SHARED_SECRET. (gRPC front stays private-network.)
       - key: GATEWAY_SHARED_SECRET
         sync: false
+      - key: RISK_ADDR
+        value: cte-risk:9094 # gRPC pre-trade check (private network)
 
   - type: web
     name: cte-settlement
@@ -112,6 +114,30 @@ services:
       # Where Stripe Checkout sends the user back (success/cancel).
       - key: PUBLIC_WEB_URL
         value: https://cte-web.onrender.com
+
+  # Risk: positions from `trades`, pre-trade checks for order (gRPC :9094),
+  # GET /v1/positions for the gateway (REST :8084). Private: no public URL.
+  - type: pserv
+    name: cte-risk
+    runtime: docker # risk/v1 gRPC stubs generated at image build (see cte-order)
+    dockerfilePath: services/risk/Dockerfile
+    dockerContext: .
+    plan: starter
+    envVars:
+      - key: LISTEN_ADDR
+        value: ":8084"
+      - key: GRPC_ADDR
+        value: ":9094"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: cte-postgres
+          property: connectionString
+      - key: KAFKA_BROKERS
+        value: redpanda-u6mq:9092
+      - key: KAFKA_TLS_ENABLED
+        value: "false"
+      - key: GATEWAY_SHARED_SECRET
+        sync: false
 
   - type: web
     name: cte-api
@@ -174,6 +200,8 @@ services:
         value: http://cte-catalog:8080
       - key: MARKETDATA_ADDR
         value: http://cte-market-data:8081
+      - key: RISK_ADDR
+        value: http://cte-risk:8084
       # Per-account rate limit (token bucket).
       - key: RATE_LIMIT_RPS
         value: "20"

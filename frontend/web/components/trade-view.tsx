@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, splitSymbol, type Order } from "@/lib/api";
+import { api, ApiError, splitSymbol, type Order, type Position } from "@/lib/api";
 import { useMarketData } from "@/lib/use-market-data";
 import { cents, when } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner, btnCls, inputCls } from "./ui";
@@ -12,6 +12,7 @@ export function TradeView({ symbol }: { symbol: string }) {
   const { gpu, region } = splitSymbol(symbol);
   const { quote, trades, status } = useMarketData(symbol);
   const [orders, setOrders] = useState<Order[]>([]);
+  const [held, setHeld] = useState<number | null>(null);
   const [unverified, setUnverified] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,6 +21,9 @@ export function TradeView({ symbol }: { symbol: string }) {
       const all = await api<Order[]>("/v1/orders");
       setOrders((all ?? []).filter((o) => o.symbol === symbol));
       setUnverified(false);
+      api<Position[]>("/v1/positions")
+        .then((ps) => setHeld((ps ?? []).find((p) => p.symbol === symbol && p.contract_id === 0)?.net_quantity ?? 0))
+        .catch(() => setHeld(null));
     } catch (e) {
       if (e instanceof ApiError && e.status === 403) setUnverified(true);
       else setError((e as Error).message);
@@ -56,7 +60,7 @@ export function TradeView({ symbol }: { symbol: string }) {
           </dl>
         </Card>
 
-        <Ticket symbol={symbol} gpu={gpu} region={region} disabled={unverified} onPlaced={refresh} defaultPrice={quote?.last_trade_price_cents ?? quote?.best_ask_price_cents ?? quote?.best_bid_price_cents ?? null} />
+        <Ticket symbol={symbol} gpu={gpu} region={region} disabled={unverified} onPlaced={refresh} held={held} defaultPrice={quote?.last_trade_price_cents ?? quote?.best_ask_price_cents ?? quote?.best_bid_price_cents ?? null} />
 
         <Card title="Recent trades">
           {trades.length === 0 ? (
@@ -86,8 +90,8 @@ export function TradeView({ symbol }: { symbol: string }) {
   );
 }
 
-function Ticket({ symbol, gpu, region, disabled, onPlaced, defaultPrice }: {
-  symbol: string; gpu: string; region: string; disabled: boolean; onPlaced: () => void; defaultPrice: number | null;
+function Ticket({ symbol, gpu, region, disabled, onPlaced, held, defaultPrice }: {
+  symbol: string; gpu: string; region: string; disabled: boolean; onPlaced: () => void; held: number | null; defaultPrice: number | null;
 }) {
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [price, setPrice] = useState("");
@@ -154,6 +158,13 @@ function Ticket({ symbol, gpu, region, disabled, onPlaced, defaultPrice }: {
           </select>
         </label>
         <div className="flex justify-between text-xs text-zinc-400"><span>Notional</span><span className="text-zinc-200">{cents(total)}</span></div>
+        {side === "SELL" && held != null && (
+          <p className="text-xs text-zinc-500">
+            {held > 0
+              ? `You hold ${held} GPU-hour${held === 1 ? "" : "s"} here — sells up to that resell your allocation.`
+              : "Sells must be backed by hours you hold or by a registered node."}
+          </p>
+        )}
         <ErrorBanner error={error} />
         {ok && <p className="text-xs text-emerald-300">{ok}</p>}
         <button className={`${btnCls} w-full ${side === "BUY" ? "bg-emerald-600 hover:bg-emerald-500" : "bg-red-600 hover:bg-red-500"}`} disabled={busy || disabled}>

@@ -150,15 +150,18 @@ func (s *riskService) loadRiskParams(ctx context.Context, contractID int64) risk
 }
 
 // loadPosition returns the user's current position (zero value if none).
-func (s *riskService) loadPosition(ctx context.Context, q sqlQueryer, userID string, contractID int64) (Position, error) {
+// Positions are keyed (user, contract, symbol); an empty symbol matches the
+// contract's single row (futures) or the first spot row (legacy callers).
+func (s *riskService) loadPosition(ctx context.Context, q sqlQueryer, userID string, contractID int64, symbol string) (Position, error) {
 	var p Position
 	err := q.QueryRowContext(ctx, `
 		SELECT user_id, contract_id, symbol, net_quantity, avg_entry_price_cents, margin_posted_cents
-		FROM positions WHERE user_id = $1 AND contract_id = $2`,
-		userID, contractID,
+		FROM positions WHERE user_id = $1 AND contract_id = $2 AND ($3 = '' OR symbol = $3)
+		ORDER BY symbol LIMIT 1`,
+		userID, contractID, symbol,
 	).Scan(&p.UserID, &p.ContractID, &p.Symbol, &p.NetQuantity, &p.AvgEntryPriceCents, &p.MarginPostedCents)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Position{UserID: userID, ContractID: contractID}, nil
+		return Position{UserID: userID, ContractID: contractID, Symbol: symbol}, nil
 	}
 	if err != nil {
 		return Position{}, err
@@ -217,7 +220,7 @@ func (s *riskService) CheckMargin(ctx context.Context, in MarginCheck) (MarginRe
 	}
 	params := s.loadRiskParams(ctx, contractID)
 
-	pos, err := s.loadPosition(ctx, s.db, in.UserID, contractID)
+	pos, err := s.loadPosition(ctx, s.db, in.UserID, contractID, in.Symbol)
 	if err != nil {
 		return MarginResult{}, err
 	}
@@ -234,6 +237,23 @@ func (s *riskService) CheckMargin(ctx context.Context, in MarginCheck) (MarginRe
 			ProjectedPosition: projected,
 			Reason:            "POSITION_LIMIT_EXCEEDED",
 		}, nil
+	}
+
+	// Spot SELL is either primary supply (the user operates an active node
+	// for this GPU type and may go short) or a resale of hours they hold
+	// (projected position must stay >= 0). Anything else is a naked sell.
+	if nakedSpotSell(kind, in.Side, projected) {
+		operator, err := s.isNodeOperator(ctx, in.UserID, in.Symbol)
+		if err != nil {
+			return MarginResult{}, err
+		}
+		if !operator {
+			return MarginResult{
+				Allowed:           false,
+				ProjectedPosition: projected,
+				Reason:            "INSUFFICIENT_HELD_QUANTITY",
+			}, nil
+		}
 	}
 
 	notional := in.PriceCents * in.Quantity
@@ -266,9 +286,56 @@ func (s *riskService) CheckMargin(ctx context.Context, in MarginCheck) (MarginRe
 	return res, nil
 }
 
+// nakedSpotSell reports whether a spot order would take the user short —
+// allowed only for node operators (primary supply); pure for testing.
+func nakedSpotSell(kind, side string, projected int64) bool {
+	return kind == KindSpot && side == SideSell && projected < 0
+}
+
 // GetPosition returns a user's position in a contract.
 func (s *riskService) GetPosition(ctx context.Context, userID string, contractID int64) (Position, error) {
-	return s.loadPosition(ctx, s.db, userID, contractID)
+	return s.loadPosition(ctx, s.db, userID, contractID, "")
+}
+
+// ListPositions returns every non-flat position the user holds.
+func (s *riskService) ListPositions(ctx context.Context, userID string) ([]Position, error) {
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT user_id, contract_id, symbol, net_quantity, avg_entry_price_cents, margin_posted_cents
+		FROM positions WHERE user_id = $1 AND net_quantity <> 0
+		ORDER BY symbol`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Position{}
+	for rows.Next() {
+		var p Position
+		if err := rows.Scan(&p.UserID, &p.ContractID, &p.Symbol, &p.NetQuantity, &p.AvgEntryPriceCents, &p.MarginPostedCents); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// isNodeOperator reports whether the user has an active registered node for
+// the symbol's GPU type (shared seller_nodes table, written by the
+// telemetry-verifier on registration). Missing table => false.
+func (s *riskService) isNodeOperator(ctx context.Context, userID, symbol string) (bool, error) {
+	gpu := strings.SplitN(symbol, ":", 2)[0]
+	var n int
+	err := s.db.QueryRowContext(ctx, `
+		SELECT count(*) FROM seller_nodes sn
+		JOIN gpu_types g ON g.id = sn.gpu_type_id
+		WHERE sn.seller_id::text = $1 AND g.name = $2 AND sn.status = 'active'`,
+		userID, gpu).Scan(&n)
+	if err != nil {
+		if strings.Contains(err.Error(), "does not exist") {
+			return false, nil
+		}
+		return false, err
+	}
+	return n > 0, nil
 }
 
 // applyTrade updates both counterparties' positions from a fill and emits
@@ -302,7 +369,7 @@ func (s *riskService) updateOne(ctx context.Context, userID string, contractID i
 	}
 	defer tx.Rollback() //nolint:errcheck
 
-	pos, err := s.loadPosition(ctx, tx, userID, contractID)
+	pos, err := s.loadPosition(ctx, tx, userID, contractID, symbol)
 	if err != nil {
 		return err
 	}
@@ -317,9 +384,8 @@ func (s *riskService) updateOne(ctx context.Context, userID string, contractID i
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO positions (user_id, contract_id, symbol, net_quantity, avg_entry_price_cents, margin_posted_cents, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, now())
-		ON CONFLICT (user_id, contract_id) DO UPDATE
-			SET symbol = EXCLUDED.symbol,
-			    net_quantity = EXCLUDED.net_quantity,
+		ON CONFLICT (user_id, contract_id, symbol) DO UPDATE
+			SET net_quantity = EXCLUDED.net_quantity,
 			    avg_entry_price_cents = EXCLUDED.avg_entry_price_cents,
 			    margin_posted_cents = EXCLUDED.margin_posted_cents,
 			    updated_at = now()`,

@@ -58,7 +58,7 @@ func main() {
 		risk = rc
 		log.Printf("futures margin checks enabled via Risk at %s", addr)
 	} else {
-		log.Print("RISK_ADDR unset; futures margin checks disabled (nop allow-all)")
+		log.Print("RISK_ADDR unset; pre-trade risk checks disabled (nop allow-all)")
 	}
 
 	svc := &orderService{db: db, pub: pub, risk: risk}

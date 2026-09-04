@@ -60,6 +60,16 @@ export type Order = {
 
 export type Balance = { user_id: string; balance: number };
 
+/** Net GPU-hours per market (risk service). Positive = hours held (resellable),
+ *  negative = hours supplied as a node operator. contract_id 0 = spot. */
+export type Position = {
+  contract_id: number;
+  symbol: string;
+  net_quantity: number;
+  avg_entry_price_cents: number;
+  margin_posted_cents: number;
+};
+
 export type Deposit = {
   id: string;
   user_id: string;

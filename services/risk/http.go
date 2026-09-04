@@ -3,8 +3,10 @@ package main
 // REST front for the risk service: pre-trade margin check + position lookup.
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 )
 
@@ -94,4 +96,41 @@ func (a *httpAPI) handlePosition(w http.ResponseWriter, r *http.Request) {
 		"avg_entry_price_cents": pos.AvgEntryPriceCents,
 		"margin_posted_cents":   pos.MarginPostedCents,
 	})
+}
+
+// handleMyPositions serves GET /v1/positions for the authenticated account.
+// Identity comes from the API gateway (X-Account-Id), never from the query
+// string; X-Gateway-Secret is enforced when GATEWAY_SHARED_SECRET is set.
+func (a *httpAPI) handleMyPositions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if secret := os.Getenv("GATEWAY_SHARED_SECRET"); secret != "" {
+		if subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Gateway-Secret")), []byte(secret)) != 1 {
+			writeError(w, http.StatusUnauthorized, "request must come through the API gateway")
+			return
+		}
+	}
+	userID := r.Header.Get("X-Account-Id")
+	if userID == "" {
+		writeError(w, http.StatusUnauthorized, "missing account identity")
+		return
+	}
+	positions, err := a.svc.ListPositions(r.Context(), userID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	out := make([]map[string]any, 0, len(positions))
+	for _, p := range positions {
+		out = append(out, map[string]any{
+			"contract_id":           p.ContractID,
+			"symbol":                p.Symbol,
+			"net_quantity":          p.NetQuantity,
+			"avg_entry_price_cents": p.AvgEntryPriceCents,
+			"margin_posted_cents":   p.MarginPostedCents,
+		})
+	}
+	writeJSON(w, http.StatusOK, out)
 }
