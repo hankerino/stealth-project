@@ -25,21 +25,21 @@ func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg})
 }
 
-// handleDeposit serves POST /v1/escrow/deposit.
-// Identity comes from the gateway (X-Account-Id), not the request body.
-// Body: { "amount_cents": 10000 }  (a user_id field, if present, is ignored.)
+// handleDeposit serves POST /v1/escrow/deposit — admin credit (closed beta /
+// operator top-up). The gateway restricts this route to role=admin; card
+// deposits for everyone else go through /v1/escrow/checkout (Stripe).
+// Body: { "amount_cents": 10000, "user_id": "<target, optional>" }
+// user_id defaults to the caller (X-Account-Id).
 func (a *httpAPI) handleDeposit(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
-	userID, ok := accountID(w, r)
+	adminID, ok := accountID(w, r)
 	if !ok {
 		return
 	}
 	var req struct {
-		// UserID accepted but IGNORED (identity is the gateway's X-Account-Id);
-		// kept for backward compatibility with old clients.
 		UserID      string `json:"user_id"`
 		AmountCents int64  `json:"amount_cents"`
 	}
@@ -47,13 +47,17 @@ func (a *httpAPI) handleDeposit(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid JSON body")
 		return
 	}
-	balance, err := a.svc.depositFunds(r.Context(), userID, req.AmountCents)
+	target := req.UserID
+	if target == "" {
+		target = adminID
+	}
+	balance, err := a.svc.adminCredit(r.Context(), adminID, target, req.AmountCents)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"user_id":      userID,
+		"user_id":      target,
 		"new_balance":  balance,
 		"amount_cents": req.AmountCents,
 	})

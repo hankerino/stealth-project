@@ -60,6 +60,42 @@ export type Order = {
 
 export type Balance = { user_id: string; balance: number };
 
+export type Deposit = {
+  id: string;
+  user_id: string;
+  amount_cents: number;
+  provider: "stripe" | "admin";
+  provider_ref: string;
+  status: "PENDING" | "COMPLETED" | "EXPIRED";
+  created_at: string;
+  completed_at: string | null;
+};
+export type Payout = {
+  id: string;
+  user_id: string;
+  amount_cents: number;
+  status: "REQUESTED" | "PAID" | "REJECTED";
+  note: string | null;
+  created_at: string;
+  resolved_at: string | null;
+  resolved_by: string | null;
+};
+export type EscrowHistory = { deposits: Deposit[]; payouts: Payout[] };
+
+/** Account role from the Supabase access token (custom_access_token_hook
+ *  claim `account_role`). Display-only: the gateway enforces RBAC. */
+export async function accountRole(): Promise<string> {
+  const { data } = await supabaseBrowser().auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) return "";
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.account_role === "string" ? payload.account_role : "";
+  } catch {
+    return "";
+  }
+}
+
 export const symbolFor = (gpu: string, region: string) => `${gpu}:${region}`;
 export const splitSymbol = (sym: string) => {
   const [gpu, region] = sym.split(":");

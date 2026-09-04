@@ -76,8 +76,27 @@ for every service it touches. "Done" = CI green.
 - [x] M1 Auth/accounts — done by desktop agent (e20e309..aeec1ca), verified live.
 - [x] M2 Frontend — merged, live (cte-web). First real end-to-end trade
       executed 2026-09-03 (see Review).
-- [ ] M3 Real payments (Stripe): escrow deposit via payment link + webhook,
-      seller payouts, in services/settlement.
+- [ ] M3 Real payments (Stripe) — approved 2026-09-03 (manual payouts).
+  Spec:
+  - [ ] settlement: Stripe REST client (net/http, no SDK): create Checkout
+        Session (mode=payment, metadata.user_id, success/cancel -> web URL).
+        Webhook POST /v1/stripe/webhook verifies Stripe-Signature (HMAC v1,
+        5-min tolerance), handles checkout.session.completed idempotently
+        (escrow_deposits.provider_ref UNIQUE; credit only PENDING->COMPLETED).
+  - [ ] DB 0004_payments: escrow_deposits, payout_requests.
+  - [ ] endpoints: POST /v1/escrow/checkout, POST /v1/escrow/withdraw
+        (debit + REQUESTED), GET /v1/escrow/history, admin GET/POST
+        /v1/admin/payouts{,/{id}} (PAID | REJECTED->refund). Legacy
+        POST /v1/escrow/deposit becomes admin-only (provider 'admin').
+  - [ ] gateway: route the above; deposit -> requireRole(admin).
+  - [ ] web: Portfolio "Add funds" -> Stripe redirect; withdraw form;
+        deposit/payout history; ?deposit=success|cancelled banner; admin
+        credit form only for account_role=admin.
+  - [ ] env (Henk): STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET on
+        cte-settlement; PUBLIC_WEB_URL=https://cte-web.onrender.com.
+        Without keys: checkout returns 503 "card payments not configured".
+  - [ ] verify: CI green (settlement, api, web); live: test-mode card
+        4242 -> webhook -> balance credited; withdraw -> admin marks paid.
 
 ## Review (filled in as phases land)
 - Phase 2, 3 merged and live on Render. Phase 4 workload loop live.

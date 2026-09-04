@@ -98,6 +98,20 @@ services:
       # Must match cte-api's GATEWAY_SHARED_SECRET.
       - key: GATEWAY_SHARED_SECRET
         sync: false
+      # M3: Stripe card deposits. Set both in the dashboard (never in git).
+      # Webhook endpoint to register in Stripe:
+      #   https://cte-settlement.onrender.com/v1/stripe/webhook
+      #   events: checkout.session.completed, checkout.session.expired,
+      #           checkout.session.async_payment_succeeded,
+      #           checkout.session.async_payment_failed
+      # Unset => card deposits disabled (admin credit still works).
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false
+      # Where Stripe Checkout sends the user back (success/cancel).
+      - key: PUBLIC_WEB_URL
+        value: https://cte-web.onrender.com
 
   - type: web
     name: cte-api

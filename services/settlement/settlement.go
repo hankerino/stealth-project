@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log"
 	"time"
 )
@@ -64,6 +63,8 @@ type settlementService struct {
 	failedEventProducer *kafkaProducer // nil in dev mode (no Kafka)
 	jobEventProducer    *kafkaProducer // nil in dev mode (no Kafka)
 	mtm                 *mtmRunner     // daily mark-to-market runner
+	stripe              *stripeClient  // never nil; disabled when no secret key
+	publicWebURL        string         // where Checkout returns the user (cte-web)
 }
 
 // Trade settlement flow (Phase 4): the consumer's trades handler is
@@ -71,28 +72,8 @@ type settlementService struct {
 // when the executing node reports completion. The previous settle-now
 // implementation was replaced; see jobs.go for the full lifecycle.
 
-// depositFunds adds to a buyer's escrow balance (idempotent upsert).
-func (s *settlementService) depositFunds(ctx context.Context, userID string, amountCents int64) (int64, error) {
-	if userID == "" {
-		return 0, errors.New("user_id is required")
-	}
-	if amountCents <= 0 {
-		return 0, errors.New("amount_cents must be greater than 0")
-	}
-	var newBalance int64
-	err := s.db.QueryRowContext(ctx, `
-		INSERT INTO escrow_accounts (user_id, balance, updated_at)
-		VALUES ($1, $2, now())
-		ON CONFLICT (user_id) DO UPDATE
-			SET balance = escrow_accounts.balance + $2, updated_at = now()
-		RETURNING balance`,
-		userID, amountCents,
-	).Scan(&newBalance)
-	if err != nil {
-		return 0, fmt.Errorf("deposit: %w", err)
-	}
-	return newBalance, nil
-}
+// Escrow credits live in payments.go (Stripe checkout webhook / admin credit)
+// so every credit leaves an escrow_deposits audit row.
 
 // getBalance returns a buyer's escrow balance (0 if no account exists).
 func (s *settlementService) getBalance(ctx context.Context, userID string) (int64, error) {
