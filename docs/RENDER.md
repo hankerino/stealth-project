@@ -17,6 +17,7 @@ terminates TLS and proxies HTTP, which fits Render, not serverless).
 | `cte-market-data` (web, docker) | `services/market-data/Dockerfile` | WebSocket fan-out; no health route (TCP check) |
 | `cte-matching-engine` (worker, docker) | `services/matching-engine/Dockerfile` | `numInstances: 1` — single-writer book, never scale without symbol sharding |
 | `cte-telemetry-verifier` (web, docker) | `services/telemetry-verifier/Dockerfile` | SLA engine + public node registration/heartbeat API (`:8082`, token-gated) |
+| `cte-node-agent` (worker, docker) | `services/node-agent/Dockerfile` | Demo seller node: fake H100 + mock executor so H100 trades settle. Remove once a real seller is onboarded |
 | `cte-index-engine` (worker, Python) | `services/index-engine` | `numInstances: 1` singleton consumer; Compute Price Index → `market-data` topic + Redis |
 | `fix-gateway` (private service, docker) | `services/fix-gateway/Dockerfile` | FIX 4.4 TCP at `fix-gateway:9878`, internal only |
 | `redpanda` (private service, image) | `docker.redpanda.com/redpandadata/redpanda` | Kafka stand-in, 10 GB disk, `:9092` plaintext internal |
@@ -82,7 +83,9 @@ already in the environment.
   platform. Sellers build it from this repo (`go build` / the agent CI
   workflow) and point `VERIFIER_URL` at
   `https://cte-telemetry-verifier-w3t7.onrender.com`, `JOBS_URL` at
-  `https://cte-settlement.onrender.com`.
+  `https://cte-settlement.onrender.com`. The one exception is
+  `cte-node-agent`, a fake-GPU demo node hosted here so the closed beta has
+  H100 capacity.
 - **AWS/Terraform layers** (`infra/terraform`) — remain the funded production
   path (`docs/ALTERNATIVE_STACK.md`); the Render blueprint replaces the same
   dev stack only.
