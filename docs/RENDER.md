@@ -102,6 +102,17 @@ already in the environment.
 - **`services/risk`** is hosted (`cte-risk`, private) since 2026-09-04 —
   spot orders fail closed if it is down (order → gRPC pre-trade check).
 
+## Domain
+
+`https://exchange.hqube.co` → `cte-web` (Render custom domain, verified,
+managed cert). DNS: CNAME `exchange` → `cte-web.onrender.com` at Hostinger
+(hqube.co is an external domain there; the site itself is WordPress on
+Hostinger). Moved from `cte-api` on 2026-09-04 — the gateway is only reached
+via the web app's same-origin `/api/gw` proxy. `PUBLIC_WEB_URL` on
+cte-settlement points here (Stripe return URLs). Supabase Auth: Site URL +
+redirect `https://exchange.hqube.co/auth/callback` must be listed
+(dashboard → Authentication → URL Configuration).
+
 ## Secrets (sync: false) — what must be set by hand, and where
 
 The Blueprint syncs every plain `value:` from `render.yaml` on each push;

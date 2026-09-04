@@ -113,7 +113,7 @@ services:
         sync: false
       # Where Stripe Checkout sends the user back (success/cancel).
       - key: PUBLIC_WEB_URL
-        value: https://cte-web.onrender.com
+        value: https://exchange.hqube.co
 
   # Risk: positions from `trades`, pre-trade checks for order (gRPC :9094),
   # GET /v1/positions for the gateway (REST :8084). Private: no public URL.

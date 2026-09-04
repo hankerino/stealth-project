@@ -8,7 +8,7 @@ orders on that GPU type are accepted as primary supply.
 
 ## 1. Account (exchange side, ~5 min)
 
-1. Seller signs up at https://cte-web.onrender.com/login.
+1. Seller signs up at https://exchange.hqube.co/login.
 2. In Supabase (`stealth-project-auth`) → `accounts`: set `role = 'seller'`
    (or `trader`) and `kyb_verified = true` after checks. The JWT hook picks
    this up on the next login.
