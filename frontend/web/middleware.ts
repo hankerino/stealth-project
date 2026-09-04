@@ -23,8 +23,21 @@ export async function middleware(req: NextRequest) {
     },
   );
 
-  const { data } = await supabase.auth.getUser();
   const path = req.nextUrl.pathname;
+  // Magic-link / PKCE landing on any path (Supabase may redirect to the site
+  // root when the requested callback URL is not in its allow-list): hand the
+  // code to /auth/callback so the session cookie gets set.
+  const code = req.nextUrl.searchParams.get("code");
+  if (code && path !== "/auth/callback") {
+    const url = req.nextUrl.clone();
+    url.pathname = "/auth/callback";
+    url.search = "";
+    url.searchParams.set("code", code);
+    url.searchParams.set("next", path === "/login" ? "/" : path);
+    return NextResponse.redirect(url);
+  }
+
+  const { data } = await supabase.auth.getUser();
   if (!data.user && !PUBLIC.has(path)) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
