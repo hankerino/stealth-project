@@ -115,7 +115,10 @@ for every service it touches. "Done" = CI green.
 - [x] FIX edge kit: infra/fix-edge (haproxy + WireGuard jump + runbook).
       NOT exposed: batch 3b (order forwarding + ExecutionReports) is still
       unimplemented, so exposure would be an empty session. Do 3b first.
-- [ ] fix-gateway batch 3b.
+- [x] fix-gateway batch 3b (REST bridge + polled ExecutionReports; CI green;
+      deployed with FIX_CLIENTS + rotated GATEWAY_SHARED_SECRET). Live FIX
+      session not yet exercised — needs a Render Shell run of
+      scripts/fix-smoke.py (private network) or the edge relay.
 - [ ] Futures unit: order/risk compute notional = price × quantity and ignore
       futures_contracts.contract_size (100 GPU-h). Decide whether quantity is
       contracts (then multiply) or GPU-hours (then drop contract_size) before

@@ -54,3 +54,15 @@ per `services/fix-gateway` (TargetCompID `CTE`).
 
 Not yet: sequence-number resend/gap fill (34 is reset per connection),
 OrderCancelReject (35=9) — unknown cancels come back as Rejected ERs.
+
+## Smoke test
+
+From the Render Shell of any `cte-*` service (private network):
+
+```sh
+FIX_HOST=fix-gateway FIX_COMP=HQUBE-TEST FIX_PASSWORD=<pw from FIX_CLIENTS> \
+  python3 scripts/fix-smoke.py H100:us-east-1 SELL 1 9900
+```
+
+Expect `ExecutionReport New` with an order id, then (if it crosses) `Trade`,
+else `Canceled` from the script's own cancel.
