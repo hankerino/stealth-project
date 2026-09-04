@@ -43,18 +43,18 @@ for every service it touches. "Done" = CI green.
 - [x] Verify: CI green for catalog, order, risk, settlement (Go) + matching-engine.
 
 ## Phase 3 — Market Data, Index & Institutional APIs  (branch: phase-3-index-fix)
-- [ ] index-engine (services/index-engine/, Python): consume trades; VWAP per GPU
+- [x] index-engine (services/index-engine/, Python): consume trades; VWAP per GPU
       type + global composite; publish to market-data topic; store Redis TimeSeries;
       Dockerfile + k8s + CI.
-- [ ] Historical API: batch offload trades + OHLCV candles to R2/MinIO (Parquet);
+- [x] Historical API (services/api history.go; offloader needs S3 vars): OHLCV candles;
       REST GET /v1/prices/historical, /v1/prices/index, /v1/trades/historical with
       pagination + date-range.
-- [ ] FIX gateway (services/fix-gateway/, Rust, fefix): TCP server, logon/logout/
+- [x] FIX gateway (services/fix-gateway/, Rust, fefix; batch 3b pending): TCP server, logon/logout/
       heartbeat; NewOrderSingle/OrderCancelRequest -> gRPC to order; consume
       order-updates+trades -> outbound ExecutionReports; Dockerfile + k8s + CI.
-- [ ] Infra: FIX edge exposure (cheap: k3s LB + Cloudflare; AWS NLB Terraform
-      upgrade snippet).
-- [ ] Verify: CI green for index-engine, market-data/api, fix-gateway.
+- [ ] Infra: FIX edge exposure — options documented in docs/RENDER.md
+      (TCP relay VPS / Spectrum / AWS NLB); do when a FIX client exists.
+- [x] Verify: CI green for index-engine, market-data/api, fix-gateway.
 
 ## Phase 4 — Web UI, Compliance & Resale
 - [x] Web (frontend/web/, Next.js 15 + TS + Tailwind, deployed on Render as
@@ -62,13 +62,17 @@ for every service it touches. "Done" = CI green.
       bid/ask/last via market-data WS), Trade view (quote, ticket, tape, my
       orders + cancel), Portfolio (escrow balance, deposit, orders). Talks to
       cte-api via same-origin /api/gw rewrite. CI: web-test.yml (tsc + build).
-      Deferred: price chart / CPI history page, futures ticket.
-- [ ] (DEFERRED to fast-follow per Henk 2026-09-03) Compliance (services/compliance/, Go): surveillance_alerts migration; consume
-      trades+orders; wash-trading + spoofing/layering rules; emit AlertTriggered;
-      Dockerfile + k8s + CI.
-- [ ] Resale: order allows Sell against held position; risk validates held qty;
-      settlement transfers allocation + funds on resale execution.
-- [ ] Verify: CI green for compliance (Go) + frontend build; e2e smoke of resale.
+      Price candles (trade view) + Compute Price Index chart (markets) shipped
+      2026-09-04. Deferred: futures ticket.
+- [x] Compliance (services/compliance/, Go, cte-compliance): surveillance_alerts;
+      consumes trades + order-updates; WASH_TRADE + SPOOFING rules; AlertTriggered;
+      admin queue in Portfolio. docs/COMPLIANCE.md. (2026-09-04)
+- [x] Resale: spot orders go through risk (per-symbol positions, no naked sells
+      unless node operator); settlement routes resale jobs to the backing node;
+      Holdings card. docs/RESALE.md. Deferred execution (buy→hold→run) is the
+      follow-up. (2026-09-04)
+- [x] Verify: CI green (risk, order, settlement, api, web, compliance); live
+      sell → fill → SETTLED → position applied once → WASH_TRADE alert.
 
 ---
 
@@ -92,16 +96,38 @@ for every service it touches. "Done" = CI green.
   - [x] web: Portfolio "Add funds" -> Stripe redirect; withdraw form;
         deposit/payout history; ?deposit=success|cancelled banner; admin
         credit form only for account_role=admin.
-  - [ ] env (Henk): STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET on
-        cte-settlement; PUBLIC_WEB_URL=https://cte-web.onrender.com.
-        Without keys: checkout returns 503 "card payments not configured".
+  - [x] env: STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, PUBLIC_WEB_URL set on
+        cte-settlement via Render API (2026-09-04).
   - [x] verify: CI green (settlement, api, web). Live: withdraw $25 ->
         REQUESTED (escrow 300->275) -> admin Reject -> refund (275->300).
         Card path returns 503 + UI notice until Stripe keys are set.
-  - [ ] PENDING HENK: Stripe test keys + webhook (docs/M3_PAYMENTS.md), then
-        4242 card -> webhook -> balance credited.
+  - [x] 4242 card -> Checkout -> webhook -> $25 credited (305 -> 330), 2026-09-04.
+
+## Next (after 2026-09-04)
+- [ ] Deferred execution for allocations (buy → held → run or resell); today
+      purchased hours execute immediately via the mock executor.
+- [ ] Futures ticket in the web UI (risk margin path is deployed now).
+- [ ] fix-gateway batch 3b + edge exposure when a FIX client exists.
+- [ ] Real seller onboarding: replace cte-node-agent with a real node; rotate
+      Stripe to live keys (test keys were pasted in chat — rotate before live).
+- [ ] Render: path-filtered deploys or a monorepo trigger to stop rebuilding
+      every Rust service on every push.
 
 ## Review (filled in as phases land)
+- 2026-09-04 (Claude took over the backlog end to end):
+  1. Seller capacity: Blueprint had created cte-node-agent + a web
+     cte-telemetry-verifier from the first push; set REGISTRATION_TOKEN /
+     SELLER_ID / real VERIFIER_URL via API. First H100 trade SETTLED (7 s).
+  2. Stripe live in test mode; $25 card deposit credited via webhook.
+  3. Price candles + CPI chart live; /v1/trades/historical no longer leaks
+     counterparty ids.
+  4. Resale + cte-risk deployed; 5. Compliance deployed (4 WASH_TRADE alerts
+     from founder self-trades — expected).
+  Prod bugs found by running it: (a) risk producer nil *kafka.Transport
+  panic; (b) risk applyTrade not idempotent under at-least-once replay ->
+  risk_applied_trades + single tx; (c) telemetry-verifier migration 0001
+  re-ran `ALTER COLUMN gpu_type_id TYPE BIGINT USING NULL` on EVERY deploy,
+  nulling every node's GPU type -> NO_CAPACITY after any deploy. All fixed.
 - Phase 2, 3 merged and live on Render. Phase 4 workload loop live.
 - M1: gateway rejects no/garbage token (401), direct service calls without
   gateway secret (401), public catalog 200. Supabase schema complete; JWT

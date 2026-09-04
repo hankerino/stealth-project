@@ -75,8 +75,15 @@ already in the environment.
   register (`REGISTRATION_TOKEN`) and heartbeat (signed). Render cannot
   change a service's type in place: the original worker was replaced by a
   new web service of the same name (2026-09-04).
-- **`fix-gateway` is private-only.** External FIX sessions need a deliberate
-  public exposure step (and batch 3b wiring) first.
+- **`fix-gateway` is private-only** (raw TCP :9878). Render's public ingress
+  is HTTP(S) only, so a FIX session cannot be exposed by flipping it to
+  `type: web`. When an institutional client needs FIX, the cheapest paths
+  are, in order: (a) a $5 VPS running a TCP relay (`socat`/`haproxy`) that
+  dials `fix-gateway:9878` over a Tailscale/WireGuard link into Render — or
+  simpler, run the FIX gateway itself on that VPS pointed at cte-order's
+  gRPC; (b) Cloudflare Spectrum (paid) in front of that relay for TLS +
+  DDoS; (c) the AWS NLB path in `infra/terraform` once funded. Batch 3b
+  (gRPC forwarding + ExecutionReports) must land before any of these.
 - **`numInstances` must stay 1** on matching-engine and index-engine.
 
 ## Not hosted / stays off Render
@@ -91,9 +98,24 @@ already in the environment.
 - **AWS/Terraform layers** (`infra/terraform`) — remain the funded production
   path (`docs/ALTERNATIVE_STACK.md`); the Render blueprint replaces the same
   dev stack only.
-- **`services/risk`** (Phase 2) — not in this blueprint yet; its migrations
-  DO run (MTM needs the `positions` table). Add it as a web service when the
-  futures path goes live.
+- **`services/risk`** is hosted (`cte-risk`, private) since 2026-09-04 —
+  spot orders fail closed if it is down (order → gRPC pre-trade check).
+
+## Secrets (sync: false) — what must be set by hand, and where
+
+The Blueprint syncs every plain `value:` from `render.yaml` on each push;
+only these are dashboard/API-managed. Audit 2026-09-04:
+
+| Service | Secret | State |
+|---|---|---|
+| cte-api | `SUPABASE_JWT_SECRET`, `SUPABASE_ANON_KEY`, `GATEWAY_SHARED_SECRET`, `ADMIN_TOKEN` | set (live auth works) |
+| cte-api | `S3_BUCKET`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | unset — offloader disabled by design |
+| cte-order, cte-settlement, cte-catalog | `GATEWAY_SHARED_SECRET` | set (direct calls 401) |
+| cte-settlement | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` | set (test mode; $25 card deposit verified) |
+| cte-web | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | set |
+| cte-telemetry-verifier, cte-node-agent | `REGISTRATION_TOKEN` | set (same value on both) |
+| cte-node-agent | `SELLER_ID` | set (founder account) |
+| cte-risk, cte-compliance | `GATEWAY_SHARED_SECRET` | **unset** — the check is skipped; acceptable only because both are private services with no public URL. Set it (same value as cte-api) if either ever becomes `type: web`. |
 
 ## Known open items (unchanged by this blueprint)
 
@@ -104,6 +126,12 @@ already in the environment.
    token-gated (`X-Admin-Token` / `ADMIN_TOKEN`, set in the dashboard).
 3. fix-gateway batch 3b (gRPC forwarding + ExecutionReports from Kafka)
    not implemented.
+4. Every push redeploys every service (single repo, no path filters in the
+   Blueprint). Rust services rebuild for ~10 min each time; the node-agent
+   re-registers a fresh `seller_nodes` row per deploy (stale rows stay
+   `active` with heartbeats gone — harmless, but noisy).
+5. `compliance-alerts` topic must be created on Redpanda by hand (like the
+   others); alerts persist to Postgres regardless.
 
 ## First deploy checklist (Render dashboard)
 

@@ -51,3 +51,38 @@
 - Addendum: never `git push -u` with a token URL — it persists the token as
   the branch's `remote` in .git/config. Push without -u, or set upstream to
   `origin` afterwards; always run the `grep -rq github_pat .git/` check.
+
+## 2026-09-04 — Migrations re-run on every deploy; every statement must be a no-op the 2nd time
+- Pattern: `ALTER COLUMN ... TYPE ... USING NULL` in a "make it idempotent"
+  migration silently nulled a live column on each deploy. Nobody noticed
+  because the symptom (NO_CAPACITY) looked like a missing seller.
+- Rule: scripts/migrate has no applied-version table, so guard any
+  data-touching DDL with an information_schema / pg_constraint check, and
+  after a deploy re-query the rows you depend on, not just the schema.
+
+## 2026-09-04 — At-least-once consumers need an idempotency key in the same tx
+- Pattern: risk applied one leg of a trade, crashed, replayed and applied it
+  again. Settlement already did this right (trade_ledger PK); risk did not.
+- Rule: every Kafka consumer that mutates state writes a marker keyed by the
+  event id in the same transaction as the mutation (see risk_applied_trades,
+  surveillance_alerts (rule, ref_id)). Check this for any new consumer.
+
+## 2026-09-04 — Pushing render.yaml IS a deploy action
+- Pattern: the Blueprint created two services from a render.yaml push before
+  I had "decided" to create them; a later revert did not delete them.
+- Rule: treat render.yaml on main as live infra. Add services deliberately;
+  removal needs a dashboard delete, and secrets (sync: false) via the Render
+  API right after the push. Render API can't read secrets or DB connection
+  strings — private services without a public URL may skip the gateway
+  secret, public ones may not.
+
+## 2026-09-04 — kafka-go Writer: never assign a nil *Transport
+- Pattern: the settlement lesson from 09-03 was applied to settlement only;
+  risk had the same constructor and panicked on its first prod publish.
+- Rule: when fixing a bug in copied boilerplate, grep the other services
+  for the same lines before closing it (`grep -rn "Transport:" services/`).
+
+## 2026-09-04 — A full host disk corrupts the sandbox git clone
+- Pattern: empty .git objects after the Mac hit 276 MB free. Remote was fine.
+- Rule: if git errors mention empty/corrupt objects, save the working-tree
+  diff, re-clone, re-apply; don't try to repair the object store.
