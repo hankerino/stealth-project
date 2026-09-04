@@ -35,8 +35,21 @@ ALTER TABLE seller_nodes ADD COLUMN IF NOT EXISTS region_id TEXT;
 -- status was also missing on the pre-migration Render table; settlement's
 -- executor lookup (sn.status = 'active') failed with 42703 on the first trade.
 ALTER TABLE seller_nodes ADD COLUMN IF NOT EXISTS status VARCHAR(32) NOT NULL DEFAULT 'active';
-ALTER TABLE seller_nodes ALTER COLUMN gpu_type_id TYPE BIGINT USING NULL;
-ALTER TABLE seller_nodes ALTER COLUMN region_id TYPE TEXT USING NULL;
+-- Retype ONLY when the legacy uuid columns are still present. Migrations
+-- re-run on every deploy, and the unconditional `TYPE BIGINT USING NULL`
+-- wiped gpu_type_id on every registered node each time (prod 2026-09-04:
+-- every trade after a deploy failed NO_CAPACITY).
+DO $$
+BEGIN
+    IF (SELECT data_type FROM information_schema.columns
+        WHERE table_name = 'seller_nodes' AND column_name = 'gpu_type_id') <> 'bigint' THEN
+        ALTER TABLE seller_nodes ALTER COLUMN gpu_type_id TYPE BIGINT USING NULL;
+    END IF;
+    IF (SELECT data_type FROM information_schema.columns
+        WHERE table_name = 'seller_nodes' AND column_name = 'region_id') <> 'text' THEN
+        ALTER TABLE seller_nodes ALTER COLUMN region_id TYPE TEXT USING NULL;
+    END IF;
+END $$;
 
 DO $$
 BEGIN
