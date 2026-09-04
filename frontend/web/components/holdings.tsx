@@ -57,7 +57,7 @@ export function Holdings({ refreshKey }: { refreshKey?: unknown }) {
       ) : rows.length === 0 ? (
         <p className="text-sm text-zinc-500">No allocations yet. Buy on a market; the hours are yours to run or resell.</p>
       ) : (
-        <table className="w-full text-sm">
+        <div className="overflow-x-auto"><table className="w-full text-sm">
           <thead className="text-left text-xs text-zinc-500">
             <tr><th>Market</th><th className="text-right">Hours</th><th>Status</th><th>Updated</th><th></th></tr>
           </thead>
@@ -83,7 +83,7 @@ export function Holdings({ refreshKey }: { refreshKey?: unknown }) {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </Card>
   );

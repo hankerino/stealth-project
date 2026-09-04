@@ -46,7 +46,7 @@ export function SurveillanceAlerts() {
       ) : alerts.length === 0 ? (
         <p className="text-sm text-zinc-500">No open alerts.</p>
       ) : (
-        <table className="w-full text-xs">
+        <div className="overflow-x-auto"><table className="w-full text-xs">
           <thead className="text-left text-zinc-500">
             <tr><th>When</th><th>Rule</th><th>Account</th><th>Market</th><th>Evidence</th><th></th></tr>
           </thead>
@@ -65,7 +65,7 @@ export function SurveillanceAlerts() {
               </tr>
             ))}
           </tbody>
-        </table>
+        </table></div>
       )}
     </Card>
   );

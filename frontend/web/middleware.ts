@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC = new Set(["/login", "/auth/callback"]);
+const PUBLIC = new Set(["/", "/login", "/auth/callback"]); // "/" renders the landing page for visitors
 
 /** Refreshes the Supabase session cookie on every request and redirects
  *  anonymous users to /login. The /api/gw proxy is excluded: it carries its

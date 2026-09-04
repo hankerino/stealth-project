@@ -1,4 +1,12 @@
 @import "tailwindcss";
 
+@theme {
+  --color-brand: #1dbf74;        /* hQube green */
+  --color-brand-dark: #159a5d;
+  --color-navy: #16233c;         /* hQube navy */
+  --color-navy-deep: #0b1220;
+  --font-sans: "Outfit", ui-sans-serif, system-ui, sans-serif;
+}
+
 :root { color-scheme: dark; }
-body { @apply bg-zinc-950 text-zinc-100 antialiased; }
+body { @apply bg-navy-deep text-zinc-100 antialiased; }

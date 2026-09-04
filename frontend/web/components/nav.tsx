@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { supabaseBrowser } from "@/lib/supabase-browser";
+import { Brand } from "./brand";
 
 const links = [
   { href: "/", label: "Markets" },
@@ -18,25 +19,22 @@ export function Nav({ email }: { email?: string | null }) {
     router.refresh();
   };
   return (
-    <header className="border-b border-zinc-800">
-      <div className="mx-auto flex max-w-6xl items-center gap-6 px-4 py-3">
-        <Link href="/" className="font-semibold tracking-tight">
-          <span className="text-emerald-400">▲</span> Compute Exchange
-        </Link>
+    <header className="sticky top-0 z-20 border-b border-white/10 bg-navy/90 backdrop-blur">
+      <div className="mx-auto flex max-w-6xl items-center gap-4 px-4 py-3 sm:gap-6">
+        <Brand compact />
         <nav className="flex gap-4 text-sm">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={path === l.href ? "text-white" : "text-zinc-400 hover:text-white"}
-            >
-              {l.label}
-            </Link>
-          ))}
+          {links.map((l) => {
+            const active = l.href === "/" ? path === "/" || path.startsWith("/trade") : path.startsWith(l.href);
+            return (
+              <Link key={l.href} href={l.href} className={active ? "text-white" : "text-zinc-400 hover:text-white"}>
+                {l.label}
+              </Link>
+            );
+          })}
         </nav>
         <div className="ml-auto flex items-center gap-3 text-sm text-zinc-400">
-          {email && <span className="hidden sm:inline">{email}</span>}
-          <button onClick={signOut} className="rounded border border-zinc-700 px-2 py-1 hover:bg-zinc-800">
+          {email && <span className="hidden md:inline">{email}</span>}
+          <button onClick={signOut} className="rounded border border-white/15 px-2 py-1 hover:bg-white/10">
             Sign out
           </button>
         </div>

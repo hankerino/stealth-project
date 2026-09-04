@@ -88,7 +88,7 @@ export function Portfolio() {
       <Holdings refreshKey={orders} />
       {positions.length > 0 && (
         <Card title="Forward positions">
-          <table className="w-full text-sm">
+          <div className="overflow-x-auto"><table className="w-full text-sm">
             <thead className="text-left text-xs text-zinc-500"><tr><th>Contract</th><th className="text-right">Net</th><th className="text-right">Avg entry</th><th className="text-right">Margin posted</th></tr></thead>
             <tbody>
               {positions.map((p) => (
@@ -100,7 +100,7 @@ export function Portfolio() {
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         </Card>
       )}
       <Card title="Deposits & payouts"><FundsHistory history={history} /></Card>
