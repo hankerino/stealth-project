@@ -1,7 +1,7 @@
 # Risk Service image. Build from the REPO ROOT:
 #   docker build -f services/risk/Dockerfile -t exchange/risk:dev .
 # The gRPC stubs for risk/v1 are generated during the build (not committed).
-FROM golang:1.22 AS build
+FROM golang:1.26 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src

@@ -2,7 +2,7 @@
 #   docker build -f services/order/Dockerfile -t exchange/order:dev .
 # order/v1 stubs are committed; risk/v1 stubs (imported for margin checks) are
 # generated during the build via scripts/gen-proto.sh (not committed).
-FROM golang:1.22 AS build
+FROM golang:1.26 AS build
 RUN apt-get update && apt-get install -y --no-install-recommends protobuf-compiler \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src

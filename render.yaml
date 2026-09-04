@@ -32,7 +32,7 @@ services:
     preDeployCommand: cd scripts/migrate && go run .
     envVars:
       - key: GO_VERSION
-        value: "1.22"
+        value: "1.26"
       - key: PORT
         value: "8080"
       - key: LISTEN_ADDR
@@ -83,7 +83,7 @@ services:
     healthCheckPath: /healthz
     envVars:
       - key: GO_VERSION
-        value: "1.22"
+        value: "1.26"
       - key: PORT
         value: "8083"
       - key: LISTEN_ADDR
@@ -149,7 +149,7 @@ services:
     plan: starter
     envVars:
       - key: GO_VERSION
-        value: "1.22"
+        value: "1.26"
       - key: LISTEN_ADDR
         value: ":8085"
       - key: DATABASE_URL
@@ -174,7 +174,7 @@ services:
     # (the service's default is self-signed HTTPS for the AWS ALB path).
     envVars:
       - key: GO_VERSION
-        value: "1.22"
+        value: "1.26"
       - key: PORT
         value: "8443"
       - key: LISTEN_ADDR

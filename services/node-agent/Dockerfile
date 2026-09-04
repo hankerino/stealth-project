@@ -4,7 +4,7 @@
 # is no proto `replace` to resolve):
 #   docker build -t exchange/node-agent:dev services/node-agent
 # For multi-arch (CI): docker buildx build --platform linux/amd64,linux/arm64 ...
-FROM golang:1.22 AS build
+FROM golang:1.26 AS build
 WORKDIR /src
 COPY . .
 ARG TARGETOS=linux

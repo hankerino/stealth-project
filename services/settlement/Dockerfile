@@ -1,7 +1,7 @@
 # Settlement Service image.
 # Build from the REPO ROOT:
 #   docker build -f services/settlement/Dockerfile -t exchange/settlement:dev .
-FROM golang:1.22 AS build
+FROM golang:1.26 AS build
 WORKDIR /src
 COPY services/settlement/go.mod services/settlement/go.sum ./
 RUN go mod download

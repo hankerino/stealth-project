@@ -6,7 +6,7 @@ const PUBLIC = new Set(["/", "/login", "/auth/callback"]); // "/" renders the la
 /** Refreshes the Supabase session cookie on every request and redirects
  *  anonymous users to /login. The /api/gw proxy is excluded: it carries its
  *  own Bearer token and the gateway does the authentication. */
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   let res = NextResponse.next({ request: req });
   const supabase = createServerClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
