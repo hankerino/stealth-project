@@ -33,11 +33,14 @@ pub fn sha256_hex(s: &str) -> String {
 }
 
 fn random_token() -> String {
-    let bytes: [u8; 32] = rand::random();
+    // 256 bits from the OS CSPRNG (uuid v4 is 122 random bits; two of them
+    // plus their version/variant nibbles are fine as an opaque bearer token).
+    let a = uuid::Uuid::new_v4();
+    let b = uuid::Uuid::new_v4();
     let mut out = String::with_capacity(70);
     out.push_str("srt_"); // seller registration token
-    for b in bytes {
-        out.push_str(&format!("{b:02x}"));
+    for byte in a.as_bytes().iter().chain(b.as_bytes().iter()) {
+        out.push_str(&format!("{byte:02x}"));
     }
     out
 }
