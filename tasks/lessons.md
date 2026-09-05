@@ -110,3 +110,15 @@
 - Rule: land on one page, wait, then navigate inside the SPA. Supabase MCP
   covers SQL/migrations/keys; only hooks, URL config and the JWT secret need
   the dashboard.
+
+## 2026-09-05 — fees
+- Any fee on a buyer-side hold must ALSO be added to risk's pre-trade margin
+  check, or orders pass risk and then FAIL at settlement with
+  INSUFFICIENT_FUNDS. Keep FEE_BUYER_BPS identical on cte-settlement and cte-risk.
+- Freeze rates on the ledger row at hold time; never recompute from env at
+  release (schedule changes would break hold/release symmetry).
+- Processor pass-through fees are not revenue: record them (fee_ledger
+  to_platform=false) but never credit the platform account.
+- Supabase `mfa.enroll` defaults the TOTP issuer to the project's Site URL
+  (jizoni.com on the shared pool) — always pass `issuer`.
+

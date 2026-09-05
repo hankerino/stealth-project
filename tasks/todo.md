@@ -211,4 +211,7 @@ payout flow (admin + MFA). Rates are frozen per trade at hold time.
 - [x] risk.go: spot BUY margin = notional + buyer fee (else trades fail at settle)
 - [x] gateway routes; render.yaml env; frontend (ticket fee line, deposit fee
       note, admin Revenue card); fees_test.go; docs/FEES.md
-- [ ] Verify live: deposit shows fee line in Stripe; trade → platform balance grows
+- [x] Verified live 2026-09-05: SELL 1 @ $50 + BUY 1 @ $50 (self-cross) → HELD 5000 (+50 fee)
+      → Run → seller net $48.75, platform revenue $1.75 ($0.50 + $1.25); escrow
+      $330.00 → $328.25. Deposit form shows "+$3.30 · charged $103.30, $100.00 to escrow".
+      Stripe line item not yet seen on a real Checkout (do with the $1 live deposit).
