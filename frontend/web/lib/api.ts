@@ -107,6 +107,7 @@ export type Deposit = {
   id: string;
   user_id: string;
   amount_cents: number;
+  fee_cents: number;
   provider: "stripe" | "admin";
   provider_ref: string;
   status: "PENDING" | "COMPLETED" | "EXPIRED";
@@ -156,4 +157,16 @@ export const symbolFor = (gpu: string, region: string) => `${gpu}:${region}`;
 export const splitSymbol = (sym: string) => {
   const [gpu, region] = sym.split(":");
   return { gpu, region };
+};
+
+/** Exchange fee schedule (basis points) — GET /v1/fees. */
+export type FeeSchedule = { buyer_bps: number; seller_bps: number; deposit_bps: number; deposit_fixed_cents: number };
+export type RevenueBucket = { kind: string; count: number; fee_cents: number; to_platform: boolean };
+export type RevenueReport = {
+  platform_account: string;
+  balance_cents: number;
+  schedule: FeeSchedule;
+  totals: RevenueBucket[];
+  last_30d: RevenueBucket[];
+  recent: { id: string; kind: string; payer_id: string; trade_id: string | null; fee_cents: number; basis_cents: number; created_at: string }[];
 };

@@ -97,7 +97,7 @@ func TestCheckoutDisabledIs503(t *testing.T) {
 
 func TestCreateCheckoutSession_Disabled(t *testing.T) {
 	c := newStripeClient("", "")
-	if _, err := c.createCheckoutSession(context.Background(), "u", "d", 100, "https://x/s", "https://x/c"); err != errStripeDisabled {
+	if _, err := c.createCheckoutSession(context.Background(), "u", "d", 100, 33, "https://x/s", "https://x/c"); err != errStripeDisabled {
 		t.Fatalf("want errStripeDisabled, got %v", err)
 	}
 }

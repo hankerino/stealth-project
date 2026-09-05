@@ -64,7 +64,10 @@ func main() {
 		db:           db,
 		stripe:       newStripeClient(os.Getenv("STRIPE_SECRET_KEY"), os.Getenv("STRIPE_WEBHOOK_SECRET")),
 		publicWebURL: envOr("PUBLIC_WEB_URL", "https://cte-web.onrender.com"),
+		fees:         loadFeeSchedule(),
 	}
+	log.Printf("fees: buyer %d bps, seller %d bps, deposit %d bps + %d¢ (grossed up), platform account %q",
+		svc.fees.BuyerBps, svc.fees.SellerBps, svc.fees.DepositBps, svc.fees.DepositFixedCents, svc.fees.PlatformAccount)
 	if svc.stripe.enabled() {
 		log.Print("stripe: card deposits enabled (Checkout + webhook)")
 	} else {
@@ -126,6 +129,9 @@ func main() {
 	mux.HandleFunc("/v1/escrow/history", api.handleHistory)
 	mux.HandleFunc("/v1/admin/payouts", api.handleAdminPayouts)
 	mux.HandleFunc("/v1/admin/payouts/{id}", api.handleAdminPayoutResolve)
+	mux.HandleFunc("/v1/fees", api.handleFees)                              // any signed-in user (gateway)
+	mux.HandleFunc("/v1/admin/revenue", api.handleAdminRevenue)             // admin (gateway)
+	mux.HandleFunc("/v1/admin/revenue/payout", api.handleAdminRevenuePayout) // admin + MFA (gateway)
 	mux.HandleFunc("/v1/stripe/webhook", api.handleStripeWebhook) // public; Stripe-Signature verified
 	mux.HandleFunc("/v1/mtm/run", api.handleMTMRun)
 	mux.HandleFunc("/v1/jobs/poll", api.handleJobsPoll)

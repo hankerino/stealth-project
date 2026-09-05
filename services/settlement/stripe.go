@@ -60,7 +60,9 @@ type checkoutSession struct {
 // createCheckoutSession opens a hosted Stripe Checkout page for a one-off
 // escrow top-up. depositID is our escrow_deposits.id and rides along in
 // metadata + client_reference_id so the webhook can correlate.
-func (c *stripeClient) createCheckoutSession(ctx context.Context, userID, depositID string, amountCents int64, successURL, cancelURL string) (*checkoutSession, error) {
+// feeCents > 0 adds a second, visible "Card processing" line item so the
+// customer sees exactly what goes to escrow and what covers the processor.
+func (c *stripeClient) createCheckoutSession(ctx context.Context, userID, depositID string, amountCents, feeCents int64, successURL, cancelURL string) (*checkoutSession, error) {
 	if !c.enabled() {
 		return nil, errStripeDisabled
 	}
@@ -76,7 +78,14 @@ func (c *stripeClient) createCheckoutSession(ctx context.Context, userID, deposi
 	form.Set("line_items[0][quantity]", "1")
 	form.Set("line_items[0][price_data][currency]", "usd")
 	form.Set("line_items[0][price_data][unit_amount]", strconv.FormatInt(amountCents, 10))
-	form.Set("line_items[0][price_data][product_data][name]", "Compute Exchange escrow deposit")
+	form.Set("line_items[0][price_data][product_data][name]", "hQube Exchange escrow deposit")
+	form.Set("metadata[fee_cents]", strconv.FormatInt(feeCents, 10))
+	if feeCents > 0 {
+		form.Set("line_items[1][quantity]", "1")
+		form.Set("line_items[1][price_data][currency]", "usd")
+		form.Set("line_items[1][price_data][unit_amount]", strconv.FormatInt(feeCents, 10))
+		form.Set("line_items[1][price_data][product_data][name]", "Card processing fee")
+	}
 
 	var out checkoutSession
 	if err := c.post(ctx, "/checkout/sessions", form, &out); err != nil {

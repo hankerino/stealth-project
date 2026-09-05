@@ -117,6 +117,10 @@ func registerGateway(mux *http.ServeMux, audit *auditor) {
 	mux.Handle("POST /v1/jobs/{id}/run", trading(settlement))
 	mux.Handle("GET /v1/admin/payouts", protected(settlement, requireRole("admin")))
 	mux.Handle("POST /v1/admin/payouts/{id}", protected(settlement, requireRole("admin"), mfa))
+	// Fees (settlement): public schedule for the UI; platform revenue for admins.
+	mux.Handle("GET /v1/fees", trading(settlement))
+	mux.Handle("GET /v1/admin/revenue", protected(settlement, requireRole("admin")))
+	mux.Handle("POST /v1/admin/revenue/payout", protected(settlement, requireRole("admin"), mfa))
 
 	// Catalog: reference data. Reads are public (no auth); writes are admin-only.
 	mux.Handle("GET /v1/gpu-types", catalog)

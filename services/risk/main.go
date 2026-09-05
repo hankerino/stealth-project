@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 
 	riskv1 "github.com/hankerino/stealth-project/libs/proto/gen/risk/v1"
 	_ "github.com/lib/pq"
@@ -45,6 +46,13 @@ func main() {
 	}
 
 	svc := &riskService{db: db}
+	if bps, err := strconv.ParseInt(envOr("FEE_BUYER_BPS", "100"), 10, 64); err == nil && bps >= 0 {
+		svc.buyerFeeBps = bps
+	} else {
+		log.Printf("risk: invalid FEE_BUYER_BPS, using 100")
+		svc.buyerFeeBps = 100
+	}
+	log.Printf("risk: spot BUY margin includes buyer fee of %d bps", svc.buyerFeeBps)
 
 	brokers := os.Getenv("KAFKA_BROKERS")
 	if brokers != "" {

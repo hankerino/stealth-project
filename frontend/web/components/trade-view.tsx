@@ -7,6 +7,7 @@ import { cents, when } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner, btnCls, inputCls } from "./ui";
 import { OrdersTable } from "./orders-table";
 import { CandleChart } from "./price-chart";
+import { useFees, bpsOf, pct } from "@/lib/use-fees";
 
 export function TradeView({ symbol }: { symbol: string }) {
   const { gpu, region } = splitSymbol(symbol);
@@ -146,6 +147,10 @@ function Ticket({ symbol, gpu, region, disabled, onPlaced, held, contract, defau
 
   const total = Math.round((parseFloat(price) || 0) * 100) * (parseInt(qty, 10) || 0);
   const margin = contract ? Math.round(total * 0.1) : null;
+  const fees = useFees();
+  // Spot only: futures settle in cash at expiry and carry no exchange fee yet.
+  const feeBps = contract ? 0 : side === "BUY" ? fees.buyer_bps : fees.seller_bps;
+  const fee = bpsOf(total, feeBps);
 
   return (
     <Card title={`Order ticket · ${symbol}`}>
@@ -172,6 +177,18 @@ function Ticket({ symbol, gpu, region, disabled, onPlaced, held, contract, defau
           </select>
         </label>
         <div className="flex justify-between text-xs text-zinc-400"><span>Notional</span><span className="text-zinc-200">{cents(total)}</span></div>
+        {feeBps > 0 && (
+          <>
+            <div className="flex justify-between text-xs text-zinc-400">
+              <span>Exchange fee ({pct(feeBps)}{side === "BUY" ? ", added" : ", deducted"})</span>
+              <span className="text-zinc-200">{side === "BUY" ? "+" : "−"}{cents(fee)}</span>
+            </div>
+            <div className="flex justify-between text-xs text-zinc-300 border-t border-zinc-800 pt-1">
+              <span>{side === "BUY" ? "You pay (held from escrow)" : "You receive on completion"}</span>
+              <span className="font-medium">{cents(side === "BUY" ? total + fee : total - fee)}</span>
+            </div>
+          </>
+        )}
         {margin != null && (
           <div className="flex justify-between text-xs text-zinc-400"><span>Initial margin (10%)</span><span className="text-zinc-200">{cents(margin)}</span></div>
         )}
