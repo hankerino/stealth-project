@@ -135,3 +135,12 @@
   webhook, and do one real end-to-end deposit as a release gate before
   going live with real users, not just Stripe test mode.
 
+## 2026-09-05 — security workflow red on a new CVE
+- govulncheck fails the moment a new advisory lands for any module in the
+  build graph, even for code that is disabled in prod (api's S3 offloader,
+  GO-2026-5764 in aws eventstream). That is the intended behaviour, not a
+  regression. Fix = merge the Dependabot bump whose own security check is
+  green (here #22 s3 1.60→1.110 pulled eventstream ≥1.7.8); a bump of only
+  the root module (#24) did not fix the indirect dep. No Go toolchain in the
+  sandbox, so prefer merging Dependabot PRs over hand-editing go.mod.
+
