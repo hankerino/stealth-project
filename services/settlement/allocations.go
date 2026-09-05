@@ -52,12 +52,15 @@ func (s *settlementService) transferAllocation(ctx context.Context, t *TradeExec
 		return fmt.Errorf("check existing trade: %w", err)
 	}
 
+	fees := s.fees.forTrade(totalCost)
+	hold := totalCost + fees.Buyer
+
 	var buyerBalance int64
 	err = tx.QueryRowContext(ctx, `SELECT balance FROM escrow_accounts WHERE user_id = $1 FOR UPDATE`, buyerID).Scan(&buyerBalance)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("select buyer balance: %w", err)
 	}
-	if buyerBalance < totalCost {
+	if buyerBalance < hold {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO trade_ledger (trade_id, symbol, buyer_id, seller_id, price_cents, quantity, total_cost, status, failure_reason)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'INSUFFICIENT_FUNDS')`,
@@ -139,25 +142,31 @@ func (s *settlementService) transferAllocation(ctx context.Context, t *TradeExec
 		return nil
 	}
 
-	// Funds: buyer -> reseller, settled now.
-	if _, err := tx.ExecContext(ctx, `UPDATE escrow_accounts SET balance = balance - $1, updated_at = now() WHERE user_id = $2`, totalCost, buyerID); err != nil {
+	// Funds: buyer pays principal + buyer fee; reseller receives principal
+	// net of seller fee; both fees to the platform. Settled now.
+	net := totalCost - fees.Seller
+	if _, err := tx.ExecContext(ctx, `UPDATE escrow_accounts SET balance = balance - $1, updated_at = now() WHERE user_id = $2`, hold, buyerID); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO escrow_accounts (user_id, balance, updated_at) VALUES ($1, $2, now())
-		ON CONFLICT (user_id) DO UPDATE SET balance = escrow_accounts.balance + $2, updated_at = now()`, sellerID, totalCost); err != nil {
+		ON CONFLICT (user_id) DO UPDATE SET balance = escrow_accounts.balance + $2, updated_at = now()`, sellerID, net); err != nil {
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `
-		INSERT INTO trade_ledger (trade_id, symbol, buyer_id, seller_id, price_cents, quantity, total_cost, status, settled_at)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())`,
-		t.TradeID, t.Symbol, buyerID, sellerID, t.PriceCents, t.Quantity, totalCost, StatusSettled); err != nil {
+		INSERT INTO trade_ledger (trade_id, symbol, buyer_id, seller_id, price_cents, quantity, total_cost, status, settled_at, buyer_fee_cents, seller_fee_cents)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now(), $9, $10)`,
+		t.TradeID, t.Symbol, buyerID, sellerID, t.PriceCents, t.Quantity, totalCost, StatusSettled, fees.Buyer, fees.Seller); err != nil {
 		return fmt.Errorf("insert settled trade: %w", err)
+	}
+	if err := s.collectTradeFees(ctx, tx, t.TradeID, buyerID, sellerID, totalCost, fees); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
-	log.Printf("resale trade %s SETTLED: %d cents %s -> %s; %d h transferred (jobs %v)", t.TradeID, totalCost, buyerID, sellerID, t.Quantity, moved)
+	log.Printf("resale trade %s SETTLED: %d cents %s -> %s (net %d; fees %d+%d to platform); %d h transferred (jobs %v)",
+		t.TradeID, totalCost, buyerID, sellerID, net, fees.Buyer, fees.Seller, t.Quantity, moved)
 	return nil
 }
 

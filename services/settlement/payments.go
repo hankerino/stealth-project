@@ -20,6 +20,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -47,6 +48,7 @@ type escrowDeposit struct {
 	ID          string     `json:"id"`
 	UserID      string     `json:"user_id"`
 	AmountCents int64      `json:"amount_cents"`
+	FeeCents    int64      `json:"fee_cents"`
 	Provider    string     `json:"provider"`
 	ProviderRef string     `json:"provider_ref"`
 	Status      string     `json:"status"`
@@ -74,16 +76,17 @@ func (s *settlementService) createCheckout(ctx context.Context, userID string, a
 		return nil, fmt.Errorf("amount_cents must be between %d and %d", minDepositCents, maxDepositCents)
 	}
 	depositID := uuidv4()
+	feeCents := s.fees.depositFee(amountCents)
 	base := strings.TrimRight(s.publicWebURL, "/")
-	sess, err := s.stripe.createCheckoutSession(ctx, userID, depositID, amountCents,
+	sess, err := s.stripe.createCheckoutSession(ctx, userID, depositID, amountCents, feeCents,
 		base+"/portfolio?deposit=success", base+"/portfolio?deposit=cancelled")
 	if err != nil {
 		return nil, err
 	}
 	_, err = s.db.ExecContext(ctx, `
-		INSERT INTO escrow_deposits (id, user_id, amount_cents, provider, provider_ref, status)
-		VALUES ($1, $2, $3, 'stripe', $4, $5)`,
-		depositID, userID, amountCents, sess.ID, depositPending)
+		INSERT INTO escrow_deposits (id, user_id, amount_cents, provider, provider_ref, status, fee_cents)
+		VALUES ($1, $2, $3, 'stripe', $4, $5, $6)`,
+		depositID, userID, amountCents, sess.ID, depositPending, feeCents)
 	if err != nil {
 		// The webhook can still reconcile from session metadata (see
 		// completeCheckout), so log rather than fail the user's checkout.
@@ -112,22 +115,37 @@ func (s *settlementService) completeCheckout(ctx context.Context, sess *checkout
 	}
 	defer tx.Rollback() //nolint:errcheck
 
+	// The processing fee was a separate line item: escrow is credited
+	// amount_total − fee. The fee comes from our pending row, falling back to
+	// the session metadata Stripe echoes back (both were set at checkout).
+	feeCents, _ := strconv.ParseInt(sess.Metadata["fee_cents"], 10, 64)
+
 	var status string
+	var depositID string
+	var rowFee sql.NullInt64
 	err = tx.QueryRowContext(ctx,
-		`SELECT status FROM escrow_deposits WHERE provider_ref = $1 FOR UPDATE`, sess.ID,
-	).Scan(&status)
+		`SELECT id::text, status, fee_cents FROM escrow_deposits WHERE provider_ref = $1 FOR UPDATE`, sess.ID,
+	).Scan(&depositID, &status, &rowFee)
+	if err == nil && rowFee.Valid {
+		feeCents = rowFee.Int64
+	}
+	if feeCents < 0 || feeCents >= sess.AmountTotal {
+		return fmt.Errorf("session %s has implausible fee %d for amount_total %d", sess.ID, feeCents, sess.AmountTotal)
+	}
+	credit := sess.AmountTotal - feeCents
+
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
 		// Pending row was never written (createCheckout insert failed) —
 		// reconcile from Stripe's copy of the facts.
-		depositID := sess.Metadata["deposit_id"]
+		depositID = sess.Metadata["deposit_id"]
 		if depositID == "" {
 			depositID = uuidv4()
 		}
 		if _, err := tx.ExecContext(ctx, `
-			INSERT INTO escrow_deposits (id, user_id, amount_cents, provider, provider_ref, status, completed_at)
-			VALUES ($1, $2, $3, 'stripe', $4, $5, now())`,
-			depositID, userID, sess.AmountTotal, sess.ID, depositCompleted); err != nil {
+			INSERT INTO escrow_deposits (id, user_id, amount_cents, provider, provider_ref, status, completed_at, fee_cents)
+			VALUES ($1, $2, $3, 'stripe', $4, $5, now(), $6)`,
+			depositID, userID, credit, sess.ID, depositCompleted, feeCents); err != nil {
 			return err
 		}
 	case err != nil:
@@ -136,8 +154,8 @@ func (s *settlementService) completeCheckout(ctx context.Context, sess *checkout
 		return nil // duplicate delivery
 	default:
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE escrow_deposits SET status = $2, amount_cents = $3, completed_at = now()
-			WHERE provider_ref = $1`, sess.ID, depositCompleted, sess.AmountTotal); err != nil {
+			UPDATE escrow_deposits SET status = $2, amount_cents = $3, fee_cents = $4, completed_at = now()
+			WHERE provider_ref = $1`, sess.ID, depositCompleted, credit, feeCents); err != nil {
 			return err
 		}
 	}
@@ -147,13 +165,18 @@ func (s *settlementService) completeCheckout(ctx context.Context, sess *checkout
 		VALUES ($1, $2, now())
 		ON CONFLICT (user_id) DO UPDATE
 			SET balance = escrow_accounts.balance + $2, updated_at = now()`,
-		userID, sess.AmountTotal); err != nil {
+		userID, credit); err != nil {
+		return err
+	}
+	// Pass-through to the processor: recorded, not credited to the platform.
+	did := depositID
+	if err := s.recordFee(ctx, tx, feeKindDeposit, userID, nil, &did, credit, s.fees.DepositBps, feeCents, false); err != nil {
 		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	log.Printf("payments: credited %d cents to %s from stripe session %s", sess.AmountTotal, userID, sess.ID)
+	log.Printf("payments: credited %d cents to %s from stripe session %s (processing fee %d)", credit, userID, sess.ID, feeCents)
 	return nil
 }
 
@@ -309,7 +332,7 @@ var errPayoutNotFound = errors.New("payout not found")
 
 func (s *settlementService) listDeposits(ctx context.Context, userID string, limit int) ([]escrowDeposit, error) {
 	rows, err := s.db.QueryContext(ctx, `
-		SELECT id::text, user_id, amount_cents, provider, provider_ref, status, created_at, completed_at
+		SELECT id::text, user_id, amount_cents, fee_cents, provider, provider_ref, status, created_at, completed_at
 		FROM escrow_deposits WHERE user_id = $1 ORDER BY created_at DESC LIMIT $2`, userID, limit)
 	if err != nil {
 		return nil, err
@@ -318,7 +341,7 @@ func (s *settlementService) listDeposits(ctx context.Context, userID string, lim
 	out := []escrowDeposit{}
 	for rows.Next() {
 		var d escrowDeposit
-		if err := rows.Scan(&d.ID, &d.UserID, &d.AmountCents, &d.Provider, &d.ProviderRef, &d.Status, &d.CreatedAt, &d.CompletedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.UserID, &d.AmountCents, &d.FeeCents, &d.Provider, &d.ProviderRef, &d.Status, &d.CreatedAt, &d.CompletedAt); err != nil {
 			return nil, err
 		}
 		out = append(out, d)
@@ -452,15 +475,21 @@ func (a *httpAPI) handleWithdraw(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, err := a.svc.requestPayout(r.Context(), userID, req.AmountCents, req.Note)
+	if err != nil {
+		writePayoutError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
+}
+
+// writePayoutError maps requestPayout failures: business rejections are 409,
+// bad input is 400.
+func writePayoutError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errInsufficientFunds) || errors.Is(err, errPayoutPending) || errors.Is(err, errPayoutDailyCap) {
 		writeError(w, http.StatusConflict, err.Error())
 		return
 	}
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, p)
+	writeError(w, http.StatusBadRequest, err.Error())
 }
 
 // handleHistory serves GET /v1/escrow/history -> {deposits, payouts}.

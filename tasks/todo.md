@@ -189,3 +189,26 @@ for every service it touches. "Done" = CI green.
   Known/expected: trade settled as FAILED/NO_CAPACITY because no seller node
   is registered for H100 — escrow correctly untouched. "Recent trades"/Last in
   the UI only show trades that happen while the WS session is open.
+
+## M4 — Exchange fees (2026-09-05) — model chosen by Henk: two-sided marketplace
+Rates (env, bps): FEE_BUYER_BPS=100 (1.0% on notional, charged to buyer at hold),
+FEE_SELLER_BPS=250 (2.5% deducted from seller at release), Stripe card cost
+passed through on deposits as a visible "Card processing" line item, grossed up
+(2.9% + 30¢ → FEE_DEPOSIT_BPS=290, FEE_DEPOSIT_FIXED_CENTS=30) so escrow is
+credited exactly the amount the user typed. Trade fees accrue to a platform
+escrow account (PLATFORM_ACCOUNT_ID=platform:hqube) and leave via the existing
+payout flow (admin + MFA). Rates are frozen per trade at hold time.
+
+- [x] settlement/fees.go: schedule from env, fee math (round half-up), fee_ledger
+      writer, GET /v1/fees, GET /v1/admin/revenue, POST /v1/admin/revenue/payout
+- [x] migration 0006_fees: trade_ledger.buyer_fee_cents/seller_fee_cents,
+      escrow_deposits.fee_cents, fee_ledger table
+- [x] jobs.go: hold total+buyer fee; release seller net of fee + credit platform;
+      failure refunds total+buyer fee
+- [x] allocations.go (resale): same, settled immediately
+- [x] payments.go/stripe.go: 2nd Checkout line item, fee on deposit row +
+      metadata, credit amount_total − fee
+- [x] risk.go: spot BUY margin = notional + buyer fee (else trades fail at settle)
+- [x] gateway routes; render.yaml env; frontend (ticket fee line, deposit fee
+      note, admin Revenue card); fees_test.go; docs/FEES.md
+- [ ] Verify live: deposit shows fee line in Stripe; trade → platform balance grows

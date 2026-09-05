@@ -167,27 +167,33 @@ func (s *settlementService) createJobForTrade(ctx context.Context, t *TradeExecu
 		return nil
 	}
 
-	if buyerBalance < totalCost {
+	// Fees are frozen at hold time. The buyer must cover principal + buyer
+	// fee; the seller fee is netted from the release later.
+	fees := s.fees.forTrade(totalCost)
+	hold := totalCost + fees.Buyer
+
+	if buyerBalance < hold {
 		return fail("INSUFFICIENT_FUNDS")
 	}
 	if nodeID == "" {
 		return fail("NO_CAPACITY")
 	}
 
-	// Hold: debit the buyer now (funds locked), credit the seller only on
-	// JobCompleted.
+	// Hold: debit the buyer now (principal + fee locked), credit the seller
+	// only on JobCompleted.
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE escrow_accounts SET balance = balance - $1, updated_at = now() WHERE user_id = $2`,
-		totalCost, buyerID,
+		hold, buyerID,
 	); err != nil {
 		return fmt.Errorf("hold buyer escrow: %w", err)
 	}
 
 	if _, err := tx.ExecContext(ctx, `
 		INSERT INTO trade_ledger (trade_id, symbol, buyer_id, seller_id, price_cents,
-		                           quantity, total_cost, status)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+		                           quantity, total_cost, status, buyer_fee_cents, seller_fee_cents)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
 		t.TradeID, t.Symbol, buyerID, sellerID, t.PriceCents, t.Quantity, totalCost, StatusPending,
+		fees.Buyer, fees.Seller,
 	); err != nil {
 		return fmt.Errorf("insert pending trade: %w", err)
 	}
@@ -213,8 +219,8 @@ func (s *settlementService) createJobForTrade(ctx context.Context, t *TradeExecu
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit: %w", err)
 	}
-	log.Printf("trade %s HELD: %d cents from %s; allocation %s (%d h) held on node %s",
-		t.TradeID, totalCost, buyerID, j.JobID, j.Quantity, nodeID)
+	log.Printf("trade %s HELD: %d cents (+%d fee) from %s; allocation %s (%d h) held on node %s",
+		t.TradeID, totalCost, fees.Buyer, buyerID, j.JobID, j.Quantity, nodeID)
 	return nil
 }
 
@@ -261,22 +267,30 @@ func (s *settlementService) reportJobCompleted(ctx context.Context, jobID, nodeI
 	// first completion settles the trade and pays the original seller in
 	// full, later ones find nothing PENDING and release nothing more.
 	var total int64
+	var fees tradeFees
+	var ledgerBuyer, ledgerSeller string
 	err = tx.QueryRowContext(ctx, `
 		UPDATE trade_ledger SET status = 'SETTLED', settled_at = now()
 		WHERE trade_id = $1 AND status = 'PENDING'
-		RETURNING total_cost`, j.TradeID,
-	).Scan(&total)
+		RETURNING total_cost, buyer_fee_cents, seller_fee_cents, buyer_id, seller_id`, j.TradeID,
+	).Scan(&total, &fees.Buyer, &fees.Seller, &ledgerBuyer, &ledgerSeller)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("settle ledger: %w", err)
 	}
+	net := total - fees.Seller
 	if total > 0 {
+		// Seller receives principal net of the seller fee; buyer fee was held
+		// with the principal. Both fees go to the platform account.
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO escrow_accounts (user_id, balance, updated_at)
 			VALUES ($1, $2, now())
 			ON CONFLICT (user_id) DO UPDATE
 				SET balance = escrow_accounts.balance + $2, updated_at = now()`,
-			j.SellerID, total,
+			j.SellerID, net,
 		); err != nil {
+			return err
+		}
+		if err := s.collectTradeFees(ctx, tx, j.TradeID, ledgerBuyer, ledgerSeller, total, fees); err != nil {
 			return err
 		}
 	}
@@ -284,8 +298,8 @@ func (s *settlementService) reportJobCompleted(ctx context.Context, jobID, nodeI
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	log.Printf("job %s COMPLETED: released %d cents to seller %s (trade %s SETTLED)",
-		jobID, total, j.SellerID, j.TradeID)
+	log.Printf("job %s COMPLETED: released %d cents to seller %s (fees %d buyer + %d seller to platform; trade %s SETTLED)",
+		jobID, net, j.SellerID, fees.Buyer, fees.Seller, j.TradeID)
 	s.emitJobEventByID("COMPLETED", jobID, "")
 	return nil
 }
@@ -316,25 +330,27 @@ func (s *settlementService) reportJobFailed(ctx context.Context, jobID, nodeID, 
 		return err
 	}
 
-	var total int64
+	var total, buyerFee int64
 	err = tx.QueryRowContext(ctx, `
 		UPDATE trade_ledger SET status = 'FAILED', failure_reason = $2
 		WHERE trade_id = $1 AND status = 'PENDING'
-		RETURNING total_cost`, j.TradeID, "JOB_FAILED: "+reason,
-	).Scan(&total)
+		RETURNING total_cost, buyer_fee_cents`, j.TradeID, "JOB_FAILED: "+reason,
+	).Scan(&total, &buyerFee)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("fail ledger: %w", err)
 	}
 
-	// Refund the hold to whoever holds the allocation now (the current
-	// buyer — a resold allocation refunds the reseller's buyer).
-	if total > 0 {
+	// Refund the whole hold (principal + buyer fee — no fee on a failed
+	// delivery) to whoever holds the allocation now (the current buyer — a
+	// resold allocation refunds the reseller's buyer).
+	refund := total + buyerFee
+	if refund > 0 {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO escrow_accounts (user_id, balance, updated_at)
 			VALUES ($1, $2, now())
 			ON CONFLICT (user_id) DO UPDATE
 				SET balance = escrow_accounts.balance + $2, updated_at = now()`,
-			j.BuyerID, total,
+			j.BuyerID, refund,
 		); err != nil {
 			return err
 		}
@@ -343,7 +359,7 @@ func (s *settlementService) reportJobFailed(ctx context.Context, jobID, nodeID, 
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	log.Printf("job %s FAILED (%s): refunded %d cents to buyer %s", jobID, reason, total, j.BuyerID)
+	log.Printf("job %s FAILED (%s): refunded %d cents (incl. %d fee) to buyer %s", jobID, reason, refund, buyerFee, j.BuyerID)
 	s.emitJobEventByID("FAILED", jobID, reason)
 	s.emitSettlementFailed(j.TradeID, j.Symbol, j.BuyerID, j.SellerID, total, "JOB_FAILED: "+reason)
 	return nil

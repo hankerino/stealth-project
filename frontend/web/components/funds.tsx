@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api, ApiError, type EscrowHistory, type Payout } from "@/lib/api";
 import { cents, when } from "@/lib/format";
 import { Card, btnCls, inputCls } from "./ui";
 import { MfaChallenge } from "./mfa";
 import Link from "next/link";
+import { useFees, depositFee, pct } from "@/lib/use-fees";
+import type { RevenueReport } from "@/lib/api";
 
 /** Money in: Stripe Checkout (hosted page). The server creates the session
  *  and the escrow credit only happens on the webhook, so this button never
@@ -14,6 +16,9 @@ export function AddFunds({ disabled }: { disabled: boolean }) {
   const [amount, setAmount] = useState("100");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const fees = useFees();
+  const amountCents = Math.round((parseFloat(amount) || 0) * 100);
+  const fee = depositFee(amountCents, fees);
 
   const go = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -41,6 +46,12 @@ export function AddFunds({ disabled }: { disabled: boolean }) {
         </button>
       </form>
       {err && <p className="mt-2 text-xs text-red-300">{err}</p>}
+      {amountCents > 0 && fee > 0 && (
+        <div className="mt-2 flex justify-between text-xs text-zinc-400">
+          <span>Card processing ({pct(fees.deposit_bps)} + {cents(fees.deposit_fixed_cents)}, shown on the Stripe page)</span>
+          <span className="text-zinc-200">+{cents(fee)} · charged {cents(amountCents + fee)}, {cents(amountCents)} to escrow</span>
+        </div>
+      )}
       <p className="mt-2 text-xs text-zinc-500">Secure checkout by Stripe. Funds appear in escrow as soon as the payment is confirmed.</p>
     </Card>
   );
@@ -107,7 +118,7 @@ export function FundsHistory({ history }: { history: EscrowHistory | null }) {
     ...history.deposits.map((d) => ({
       key: `d-${d.id}`,
       at: d.created_at,
-      kind: d.provider === "admin" ? "Credit (admin)" : "Deposit (card)",
+      kind: d.provider === "admin" ? "Credit (admin)" : d.fee_cents > 0 ? `Deposit (card, +${cents(d.fee_cents)} processing)` : "Deposit (card)",
       amount: d.amount_cents,
       status: d.status,
       cls: depositStatusCls[d.status] ?? "",
@@ -236,6 +247,71 @@ export function AdminFunds({ onChanged }: { onChanged: () => void }) {
             </table>
           )}
         </div>
+      )}
+    </Card>
+  );
+}
+
+/** Admin: platform fee revenue (fees.go). Balance lives in the platform
+ *  escrow account and leaves through the normal payout queue. */
+export function AdminRevenue() {
+  const [rep, setRep] = useState<RevenueReport | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [amount, setAmount] = useState("");
+  const [msg, setMsg] = useState<string | null>(null);
+  const [mfa, setMfa] = useState(false);
+  const load = () => api<RevenueReport>("/v1/admin/revenue").then(setRep).catch((e) => setErr((e as Error).message));
+  useEffect(() => { void load(); }, []);
+
+  const payout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMsg(null);
+    try {
+      await api("/v1/admin/revenue/payout", { method: "POST", body: JSON.stringify({ amount_cents: Math.round(parseFloat(amount) * 100) }) });
+      setMsg("Revenue payout queued — resolve it in the payout queue below.");
+      setAmount("");
+      void load();
+    } catch (e) {
+      if (e instanceof ApiError && e.mfaRequired) setMfa(true);
+      else setMsg((e as Error).message);
+    }
+  };
+
+  const sum = (rows: RevenueReport["totals"] | undefined, platformOnly: boolean) =>
+    (rows ?? []).filter((r) => !platformOnly || r.to_platform).reduce((n, r) => n + r.fee_cents, 0);
+  const label: Record<string, string> = { BUYER_TRADE: "Buyer fees", SELLER_TRADE: "Seller fees", DEPOSIT_PROCESSING: "Card processing (pass-through to Stripe)" };
+
+  return (
+    <Card title="Platform revenue">
+      {err && <p className="text-xs text-red-300">{err}</p>}
+      {rep && (
+        <>
+          <div className="grid grid-cols-3 gap-3 text-sm">
+            <div><div className="text-xs text-zinc-500">Revenue balance</div><div className="font-mono text-lg text-emerald-300">{cents(rep.balance_cents)}</div></div>
+            <div><div className="text-xs text-zinc-500">Fees earned, last 30 d</div><div className="font-mono text-lg">{cents(sum(rep.last_30d, true))}</div></div>
+            <div><div className="text-xs text-zinc-500">Fees earned, all time</div><div className="font-mono text-lg">{cents(sum(rep.totals, true))}</div></div>
+          </div>
+          <p className="mt-1 text-xs text-zinc-500">
+            Schedule: buyers {pct(rep.schedule.buyer_bps)} · sellers {pct(rep.schedule.seller_bps)} · deposits {pct(rep.schedule.deposit_bps)} + {cents(rep.schedule.deposit_fixed_cents)} (pass-through).
+          </p>
+          <table className="mt-3 w-full text-xs">
+            <tbody>
+              {rep.totals.map((b) => (
+                <tr key={b.kind} className="border-t border-zinc-800">
+                  <td className="py-1 pr-3 text-zinc-400">{label[b.kind] ?? b.kind}</td>
+                  <td className="py-1 pr-3 text-right text-zinc-500">{b.count}×</td>
+                  <td className={`py-1 text-right font-mono ${b.to_platform ? "" : "text-zinc-500"}`}>{cents(b.fee_cents)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <form onSubmit={payout} className="mt-3 flex gap-2">
+            <input className={inputCls} type="number" step="0.01" min="1" max={rep.balance_cents / 100} placeholder="Withdraw revenue (USD)" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <button className={`${btnCls} shrink-0 bg-zinc-700 hover:bg-zinc-600`} disabled={!amount}>Request payout</button>
+          </form>
+          {mfa && <div className="mt-2"><MfaChallenge onDone={() => { setMfa(false); }} /></div>}
+          {msg && <p className="mt-2 text-xs text-zinc-300">{msg}</p>}
+        </>
       )}
     </Card>
   );

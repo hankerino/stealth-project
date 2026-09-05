@@ -114,6 +114,20 @@ services:
       # Where Stripe Checkout sends the user back (success/cancel).
       - key: PUBLIC_WEB_URL
         value: https://exchange.hqube.co
+      # M4 fees (basis points). Buyer fee is held with the trade, seller fee
+      # netted at release; both accrue to PLATFORM_ACCOUNT_ID. Deposit fee is
+      # the grossed-up Stripe card cost, shown as a Checkout line item.
+      # Keep FEE_BUYER_BPS identical on cte-risk.
+      - key: FEE_BUYER_BPS
+        value: "100"
+      - key: FEE_SELLER_BPS
+        value: "250"
+      - key: FEE_DEPOSIT_BPS
+        value: "290"
+      - key: FEE_DEPOSIT_FIXED_CENTS
+        value: "30"
+      - key: PLATFORM_ACCOUNT_ID
+        value: platform:hqube
 
   # Risk: positions from `trades`, pre-trade checks for order (gRPC :9094),
   # GET /v1/positions for the gateway (REST :8084). Private: no public URL.
@@ -138,6 +152,9 @@ services:
         value: "false"
       - key: GATEWAY_SHARED_SECRET
         sync: false
+      # Must match cte-settlement so pre-trade margin covers the buyer fee.
+      - key: FEE_BUYER_BPS
+        value: "100"
 
   # Compliance: market surveillance (wash trades, spoofing) from trades +
   # order-updates; admin review API through the gateway. Private.

@@ -71,6 +71,7 @@ type settlementService struct {
 	mtm                 *mtmRunner     // daily mark-to-market runner
 	stripe              *stripeClient  // never nil; disabled when no secret key
 	publicWebURL        string         // where Checkout returns the user (cte-web)
+	fees                feeSchedule    // M4 exchange fees (fees.go)
 }
 
 // Trade settlement flow (Phase 4): the consumer's trades handler is

@@ -112,6 +112,18 @@ type PositionUpdated struct {
 type riskService struct {
 	db  *sql.DB
 	pub *kafkaProducer // nil in dev (no Kafka): PositionUpdated is skipped
+	// buyerFeeBps mirrors settlement's FEE_BUYER_BPS so a spot BUY is only
+	// admitted when escrow covers principal + the fee settlement will hold;
+	// otherwise the order would fill and then FAIL at settlement.
+	buyerFeeBps int64
+}
+
+// buyerFee is settlement's fee math (round half-up) for the pre-trade check.
+func (s *riskService) buyerFee(notionalCents int64) int64 {
+	if notionalCents <= 0 || s.buyerFeeBps <= 0 {
+		return 0
+	}
+	return (notionalCents*s.buyerFeeBps + 5_000) / 10_000
 }
 
 // isFuturesSymbol reports whether a symbol is a futures book (encodes :FUT:).
@@ -267,7 +279,7 @@ func (s *riskService) CheckMargin(ctx context.Context, in MarginCheck) (MarginRe
 		required = notional * int64(params.InitialMarginPct) / 100
 	default: // SPOT
 		if in.Side == SideBuy {
-			required = notional
+			required = notional + s.buyerFee(notional)
 		}
 	}
 
