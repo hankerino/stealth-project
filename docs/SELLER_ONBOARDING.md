@@ -6,6 +6,14 @@ and executes the workload jobs that buyers run against the seller's
 allocations. Once a node is registered and active, the seller's SELL
 orders on that GPU type are accepted as primary supply.
 
+## 0. Lead intake
+
+Prospective providers apply at https://exchange.hqube.co/sell (no account
+needed). Applications land in `provider_applications` and show on the admin
+Portfolio under **Provider applications** with a status dropdown
+(NEW → CONTACTED → ONBOARDED / DECLINED). The public endpoint is rate-limited
+(5/h per IP), de-duplicated per email per 24 h, and has a honeypot field.
+
 ## 1. Account (exchange side, ~5 min)
 
 1. Seller signs up at https://exchange.hqube.co/login.

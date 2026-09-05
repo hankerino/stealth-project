@@ -219,3 +219,14 @@ payout flow (admin + MFA). Rates are frozen per trade at hold time.
       trailing "." and 404'd every delivery since setup. Fixed URL in Stripe
       dashboard, resent the failed event (200 OK). Escrow $328.25 -> $329.25,
       confirmed correct. Live money deposits now verified end-to-end.
+
+## Launch (2026-09-05)
+- [x] LinkedIn Post A live on hQube page (branded card); Post B scheduled Tue
+      Sep 8 08:30 CEST (branded card). X thread live on @hankquinones.
+- [x] /sell founding-provider page + provider_applications + admin leads card;
+      "Sell capacity" links → /sell; OG/Twitter image = /social/launch-card.png.
+      Verified live: application submitted → "1 new" on admin → status change.
+- [ ] Seed GPU node (deferred by Henk): Lambda A100 40GB ≈ $940/mo recommended;
+      before that, switch node-agent executor from mock to real Docker and test.
+- [ ] Cloudflare WAF (deferred by Henk — needs nameserver move).
+
