@@ -47,7 +47,7 @@ export function Landing() {
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <Link href="/login?mode=signup" className="rounded bg-brand px-5 py-2.5 font-medium text-navy-deep hover:bg-brand-dark hover:text-white">Create an account</Link>
-              <a href="https://github.com/hankerino/stealth-project/blob/main/docs/SELLER_ONBOARDING.md" className="rounded border border-white/20 px-5 py-2.5 hover:bg-white/10">Sell capacity</a>
+              <Link href="/sell" className="rounded border border-white/20 px-5 py-2.5 hover:bg-white/10">Sell capacity</Link>
             </div>
             <dl className="mt-12 grid max-w-3xl grid-cols-2 gap-6 text-sm sm:grid-cols-4">
               {[["H100 · A100 · B200", "GPU types"], ["Spot + forwards", "Markets"], ["Escrow", "Settlement"], ["FIX 4.4 · REST", "Access"]].map(([v, k]) => (

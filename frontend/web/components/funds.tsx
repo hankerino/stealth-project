@@ -7,7 +7,7 @@ import { Card, btnCls, inputCls } from "./ui";
 import { MfaChallenge } from "./mfa";
 import Link from "next/link";
 import { useFees, depositFee, pct } from "@/lib/use-fees";
-import type { RevenueReport } from "@/lib/api";
+import type { RevenueReport, ProviderApplication } from "@/lib/api";
 
 /** Money in: Stripe Checkout (hosted page). The server creates the session
  *  and the escrow credit only happens on the webhook, so this button never
@@ -316,3 +316,46 @@ export function AdminRevenue() {
     </Card>
   );
 }
+
+/** Admin: founding-provider applications from /sell. */
+export function AdminProviders() {
+  const [apps, setApps] = useState<ProviderApplication[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const load = () => api<ProviderApplication[]>("/v1/admin/providers").then(setApps).catch((e) => setErr((e as Error).message));
+  useEffect(() => { void load(); }, []);
+  const setStatus = async (id: string, status: ProviderApplication["status"]) => {
+    await api(`/v1/admin/providers/${id}`, { method: "POST", body: JSON.stringify({ status }) });
+    void load();
+  };
+  const open = apps?.filter((a) => a.status === "NEW").length ?? 0;
+  return (
+    <Card title={`Provider applications${apps ? ` (${open} new)` : ""}`}>
+      {err && <p className="text-xs text-red-300">{err}</p>}
+      {apps && apps.length === 0 && <p className="text-sm text-zinc-500">No applications yet. They arrive from <a className="text-brand hover:underline" href="/sell">/sell</a>.</p>}
+      {apps && apps.length > 0 && (
+        <table className="w-full text-xs">
+          <thead><tr className="text-left text-zinc-500"><th className="py-1 pr-3">When</th><th className="py-1 pr-3">Who</th><th className="py-1 pr-3">GPUs</th><th className="py-1 pr-3">Status</th></tr></thead>
+          <tbody>
+            {apps.map((a) => (
+              <tr key={a.id} className="border-t border-zinc-800 align-top">
+                <td className="py-1 pr-3 whitespace-nowrap text-zinc-400">{when(a.created_at)}</td>
+                <td className="py-1 pr-3">
+                  <div>{a.name}{a.company ? ` · ${a.company}` : ""}</div>
+                  <a className="text-brand hover:underline" href={`mailto:${a.email}`}>{a.email}</a>
+                  {a.location && <div className="text-zinc-500">{a.location}</div>}
+                </td>
+                <td className="py-1 pr-3">{a.gpus}{a.notes && <div className="mt-1 text-zinc-500">{a.notes}</div>}</td>
+                <td className="py-1 pr-3">
+                  <select className={`${inputCls} py-1`} value={a.status} onChange={(e) => setStatus(a.id, e.target.value as ProviderApplication["status"])}>
+                    {(["NEW", "CONTACTED", "ONBOARDED", "DECLINED"] as const).map((s) => <option key={s}>{s}</option>)}
+                  </select>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </Card>
+  );
+}
+

@@ -170,3 +170,9 @@ export type RevenueReport = {
   last_30d: RevenueBucket[];
   recent: { id: string; kind: string; payer_id: string; trade_id: string | null; fee_cents: number; basis_cents: number; created_at: string }[];
 };
+
+export type ProviderApplication = {
+  id: string; name: string; email: string; company: string | null; gpus: string; location: string | null;
+  notes: string | null; status: "NEW" | "CONTACTED" | "ONBOARDED" | "DECLINED"; created_at: string;
+};
+

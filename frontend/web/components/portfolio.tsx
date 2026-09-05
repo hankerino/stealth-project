@@ -5,7 +5,7 @@ import { accountIdFromToken, accountRole, api, ApiError, type Balance, type Escr
 import { cents } from "@/lib/format";
 import { Card, ErrorBanner, VerifyBanner } from "./ui";
 import { OrdersTable } from "./orders-table";
-import { AddFunds, AdminFunds, AdminRevenue, FundsHistory, Withdraw } from "./funds";
+import { AddFunds, AdminFunds, AdminProviders, AdminRevenue, FundsHistory, Withdraw } from "./funds";
 import { Holdings } from "./holdings";
 import { SurveillanceAlerts } from "./alerts";
 
@@ -83,6 +83,7 @@ export function Portfolio() {
         <AddFunds disabled={unverified} />
         <Withdraw disabled={unverified || !balance || balance.balance <= 0} balance={balance?.balance ?? 0} onChanged={refresh} />
       </div>
+      {role === "admin" && <AdminProviders />}
       {role === "admin" && <AdminRevenue />}
       {role === "admin" && <AdminFunds onChanged={refresh} />}
       {role === "admin" && <SurveillanceAlerts />}
