@@ -122,3 +122,16 @@
 - Supabase `mfa.enroll` defaults the TOTP issuer to the project's Site URL
   (jizoni.com on the shared pool) — always pass `issuer`.
 
+## 2026-09-05 — Stripe webhook first live deposit
+- The Stripe webhook Endpoint URL for cte-settlement had a stray trailing
+  period (`.../v1/stripe/webhook.`) since it was first configured — every
+  delivery 404'd (Go's ServeMux treats the trailing dot as a different path).
+  This meant a paying customer's card would be charged but escrow would
+  never credit. Only found because the $1 live deposit sanity check was
+  done deliberately before opening the site to real users. Fixed the URL in
+  the Stripe dashboard, resent the failed event (200 OK), escrow credited
+  correctly ($328.25 -> $329.25). Lesson: always click the actual saved
+  Endpoint URL in Stripe's dashboard character-by-character when wiring a
+  webhook, and do one real end-to-end deposit as a release gate before
+  going live with real users, not just Stripe test mode.
+

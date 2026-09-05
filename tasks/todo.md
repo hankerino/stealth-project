@@ -215,3 +215,7 @@ payout flow (admin + MFA). Rates are frozen per trade at hold time.
       → Run → seller net $48.75, platform revenue $1.75 ($0.50 + $1.25); escrow
       $330.00 → $328.25. Deposit form shows "+$3.30 · charged $103.30, $100.00 to escrow".
       Stripe line item not yet seen on a real Checkout (do with the $1 live deposit).
+- [x] $1 live Stripe deposit (2026-09-05): found the webhook Endpoint URL had a
+      trailing "." and 404'd every delivery since setup. Fixed URL in Stripe
+      dashboard, resent the failed event (200 OK). Escrow $328.25 -> $329.25,
+      confirmed correct. Live money deposits now verified end-to-end.
