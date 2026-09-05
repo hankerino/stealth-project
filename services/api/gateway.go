@@ -119,6 +119,11 @@ func registerGateway(mux *http.ServeMux, audit *auditor) {
 	mux.Handle("POST /v1/admin/payouts/{id}", protected(settlement, requireRole("admin"), mfa))
 	// Fees (settlement): public schedule for the UI; platform revenue for admins.
 	mux.Handle("GET /v1/fees", trading(settlement))
+	// Founding-provider applications: public form on /sell (settlement rate-limits
+	// per IP); the lead list is admin-only.
+	mux.Handle("POST /v1/providers/apply", settlement)
+	mux.Handle("GET /v1/admin/providers", protected(settlement, requireRole("admin")))
+	mux.Handle("POST /v1/admin/providers/{id}", protected(settlement, requireRole("admin")))
 	mux.Handle("GET /v1/admin/revenue", protected(settlement, requireRole("admin")))
 	mux.Handle("POST /v1/admin/revenue/payout", protected(settlement, requireRole("admin"), mfa))
 
