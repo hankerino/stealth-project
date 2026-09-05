@@ -28,7 +28,7 @@ export function MfaSettings() {
 
   const startEnrol = async () => {
     setBusy(true); setError(null);
-    const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "Authenticator app" });
+    const { data, error } = await sb.auth.mfa.enroll({ factorType: "totp", friendlyName: "Authenticator app", issuer: "hQube Exchange" });
     setBusy(false);
     if (error) return setError(error.message);
     setEnrol({ id: data.id, qr: data.totp.qr_code, secret: data.totp.secret });
