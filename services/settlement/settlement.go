@@ -72,6 +72,7 @@ type settlementService struct {
 	stripe              *stripeClient  // never nil; disabled when no secret key
 	publicWebURL        string         // where Checkout returns the user (cte-web)
 	fees                feeSchedule    // M4 exchange fees (fees.go)
+	hubspot             *hubspotClient // nil unless HUBSPOT_API_KEY is set (hubspot.go)
 }
 
 // Trade settlement flow (Phase 4): the consumer's trades handler is
