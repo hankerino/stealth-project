@@ -130,6 +130,14 @@ func (s *settlementService) listProviderApplications(ctx context.Context, limit 
 	return out, rows.Err()
 }
 
+// providerApplicationEmail looks up the email for a provider_applications
+// row, used to mirror a status change onto the matching HubSpot Contact.
+func (s *settlementService) providerApplicationEmail(ctx context.Context, id string) (string, error) {
+	var email string
+	err := s.db.QueryRowContext(ctx, `SELECT email FROM provider_applications WHERE id = $1::uuid`, id).Scan(&email)
+	return email, err
+}
+
 func (s *settlementService) setProviderApplicationStatus(ctx context.Context, id, status string) error {
 	res, err := s.db.ExecContext(ctx, `UPDATE provider_applications SET status = $2 WHERE id = $1::uuid`, id, status)
 	if err != nil {
@@ -195,6 +203,7 @@ func (a *httpAPI) handleProviderApply(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Printf("provider application %s from %s (%s)", app.ID, app.Email, ip)
+	a.svc.hubspot.syncProviderApplication(app)
 	writeJSON(w, http.StatusCreated, map[string]any{"ok": true, "id": app.ID})
 }
 
@@ -237,12 +246,16 @@ func (a *httpAPI) handleAdminProviderStatus(w http.ResponseWriter, r *http.Reque
 		writeError(w, http.StatusBadRequest, "status must be NEW, CONTACTED, ONBOARDED or DECLINED")
 		return
 	}
-	if err := a.svc.setProviderApplicationStatus(r.Context(), r.PathValue("id"), in.Status); errors.Is(err, sql.ErrNoRows) {
+	id := r.PathValue("id")
+	if err := a.svc.setProviderApplicationStatus(r.Context(), id, in.Status); errors.Is(err, sql.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not found")
 		return
 	} else if err != nil {
 		writeError(w, http.StatusInternalServerError, "update failed")
 		return
+	}
+	if email, err := a.svc.providerApplicationEmail(r.Context(), id); err == nil {
+		a.svc.hubspot.syncProviderStatus(email, in.Status)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
