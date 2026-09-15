@@ -144,3 +144,42 @@
   the root module (#24) did not fix the indirect dep. No Go toolchain in the
   sandbox, so prefer merging Dependabot PRs over hand-editing go.mod.
 
+
+## 2026-09-15 — Cowork's sandbox blocks github.com/api.github.com outright; a PAT does not fix it
+- Pattern: In a Cowork session (not a Claude Code CLI session), `mcp__workspace__bash`
+  runs behind a fixed egress proxy. `git clone`/`git ls-remote`/`git push` against
+  github.com fail with "could not read Username... terminal prompts disabled" even
+  for a public repo's anonymous read, and `curl https://api.github.com/...` returns
+  a connection failure — the proxy intercepts the request before it reaches GitHub.
+  Checked Henk's account: this is an individual plan, so there is no Team/Enterprise
+  admin "Capabilities → network access" console to allowlist the domain either.
+  The 2026-08-15 note above ("only github.com + pypi are reachable") was true in a
+  *different* execution context (a Claude Code CLI session with its own network and
+  a real GitHub PAT sourced from local transcripts) — it does not apply inside
+  Cowork's sandbox. Don't re-diagnose this each time; it's a fixed platform
+  constraint of Cowork, not a missing credential.
+- Rule: In a Cowork session, make all repo edits through github.com's own web
+  editor via the Claude-in-Chrome tools (the user's real, already-authenticated
+  browser), not `git`/bash. Reliable sequence:
+  1. New file: `navigate` to `.../new/<branch>?filename=<path>` — the paste works
+     on the first try.
+  2. Existing file: `navigate` to `.../edit/<branch>/<path>`, click the editor,
+     `cmd+a`, `cmd+v` (clipboard set via `mcp__computer-use__write_clipboard`,
+     unlocked with one `request_access` call using `clipboardWrite:true` and any
+     single non-browser app, e.g. Finder — the actual paste destination is the
+     Chrome tab). **The first paste right after navigation is silently a no-op**
+     (CodeMirror isn't ready yet) — the "Commit changes…" button stays
+     disabled/pale and the buffer still holds the old file untouched (this is a
+     safety net, not just an annoyance — it means a premature `cmd+a`/`cmd+v`
+     never actually destroys content). Redo the same `cmd+a`/`cmd+v` once more,
+     then confirm a solid bright-green button plus a spot-check scroll of the
+     diff before committing.
+  3. GitHub's editor virtualizes long files — `get_page_text` and even a full
+     screenshot only show what CodeMirror has rendered near the viewport, not
+     the whole file. Never trust that as "I've read the whole file" before doing
+     a `cmd+a` replace; either scroll through to confirm total length first, or
+     avoid the risk entirely by appending at the end (`cmd+End` then paste just
+     the new section) instead of replacing the full buffer.
+  4. Verify the CI run for the new commit (Actions tab) before telling the user
+     it shipped — CI is still the only compiler available (see the Go/Rust
+     lesson above).
