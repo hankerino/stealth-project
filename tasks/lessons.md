@@ -145,22 +145,40 @@
   sandbox, so prefer merging Dependabot PRs over hand-editing go.mod.
 
 
-## 2026-09-15 — Cowork's sandbox blocks github.com/api.github.com outright; a PAT does not fix it
-- Pattern: In a Cowork session (not a Claude Code CLI session), `mcp__workspace__bash`
-  runs behind a fixed egress proxy. `git clone`/`git ls-remote`/`git push` against
-  github.com fail with "could not read Username... terminal prompts disabled" even
-  for a public repo's anonymous read, and `curl https://api.github.com/...` returns
-  a connection failure — the proxy intercepts the request before it reaches GitHub.
-  Checked Henk's account: this is an individual plan, so there is no Team/Enterprise
-  admin "Capabilities → network access" console to allowlist the domain either.
-  The 2026-08-15 note above ("only github.com + pypi are reachable") was true in a
-  *different* execution context (a Claude Code CLI session with its own network and
-  a real GitHub PAT sourced from local transcripts) — it does not apply inside
-  Cowork's sandbox. Don't re-diagnose this each time; it's a fixed platform
-  constraint of Cowork, not a missing credential.
-- Rule: In a Cowork session, make all repo edits through github.com's own web
-  editor via the Claude-in-Chrome tools (the user's real, already-authenticated
-  browser), not `git`/bash. Reliable sequence:
+## 2026-09-15 — git over github.com works fine with a PAT; only raw REST calls to api.github.com are blocked
+- Pattern: First diagnosed this as "GitHub is fully blocked from the Cowork sandbox"
+  after `git ls-remote`/`git push` failed with "could not read Username... terminal
+  prompts disabled" and `curl https://api.github.com/...` returned a connection
+  failure (HTTP 000). That was half right and led to an hour of doing every edit
+  through github.com's web editor via Claude-in-Chrome (works, but slow). The
+  real picture, confirmed once Henk supplied a PAT: `curl`/raw HTTPS to
+  `api.github.com` genuinely is blocked (proxy resets the connection before any
+  response, even unauthenticated — a credential can't fix that). But plain `git`
+  operations (`fetch`/`push`/`ls-remote`) against `https://github.com/...` work
+  completely normally through the same sandbox once a credential is supplied —
+  the earlier failure was *only* missing credentials, not a network block, for
+  that specific host+protocol.
+- Rule: For this repo, use a real GitHub PAT with git directly instead of the
+  browser workflow:
+  - `git config credential.helper store` once, then write
+    `https://x-access-token:<PAT>@github.com` to `~/.git-credentials` (chmod 600).
+    Keep the remote URL itself clean (`https://github.com/hankerino/stealth-project.git`)
+    — never bake the token into `git remote -v` output.
+  - Normal `git add`/`commit`/`push` to `main` works from here on; CI on GitHub
+    Actions is still the compiler (no local Go/Rust toolchain), so push, then
+    check the Actions tab before telling the user it shipped.
+  - `api.github.com` (REST API, used for things like closing a Dependabot PR
+    with a comment) is still unreachable via `curl`/HTTP libraries — for those,
+    fall back to the Claude-in-Chrome browser workflow described below.
+  - The credential is per-session (this sandbox's home dir doesn't persist
+    across sessions) — if a future session needs push access and doesn't already
+    have a stored PAT, ask the user for one rather than re-deriving the old
+    "everything is blocked" conclusion from a bare `git ls-remote` failure.
+
+## 2026-09-15 — GitHub web-editor fallback (for api.github.com-only operations, or if no PAT is available)
+- Rule: make repo edits through github.com's own web editor via the
+  Claude-in-Chrome tools (the user's real, already-authenticated browser), not
+  `git`/bash. Reliable sequence:
   1. New file: `navigate` to `.../new/<branch>?filename=<path>` — the paste works
      on the first try.
   2. Existing file: `navigate` to `.../edit/<branch>/<path>`, click the editor,
