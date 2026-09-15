@@ -65,6 +65,7 @@ func main() {
 		stripe:       newStripeClient(os.Getenv("STRIPE_SECRET_KEY"), os.Getenv("STRIPE_WEBHOOK_SECRET")),
 		publicWebURL: envOr("PUBLIC_WEB_URL", "https://cte-web.onrender.com"),
 		fees:         loadFeeSchedule(),
+		hubspot:      loadHubSpot(),
 	}
 	log.Printf("fees: buyer %d bps, seller %d bps, deposit %d bps + %d¢ (grossed up), platform account %q",
 		svc.fees.BuyerBps, svc.fees.SellerBps, svc.fees.DepositBps, svc.fees.DepositFixedCents, svc.fees.PlatformAccount)
@@ -72,6 +73,11 @@ func main() {
 		log.Print("stripe: card deposits enabled (Checkout + webhook)")
 	} else {
 		log.Print("STRIPE_SECRET_KEY unset; card deposits disabled (admin credit only)")
+	}
+	if svc.hubspot != nil {
+		log.Print("hubspot: founding-provider lead sync enabled")
+	} else {
+		log.Print("HUBSPOT_API_KEY unset; founding-provider leads will not sync to HubSpot")
 	}
 	// MTM runner is available in all modes so POST /v1/mtm/run works in dev.
 	mtm := &mtmRunner{db: db}
