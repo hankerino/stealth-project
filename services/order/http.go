@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"strconv"
 )
 
 // REST front for order entry. Routes use the Go 1.22 method+wildcard mux.
@@ -136,4 +137,24 @@ func (a *httpAPI) handleCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, o)
+}
+
+// handleAdminOrders serves GET /v1/admin/orders?limit=N: newest orders across
+// all accounts, for market surveillance. Read-only. Role (admin or auditor)
+// is enforced by the gateway; the gateway secret + identity are checked here.
+func (a *httpAPI) handleAdminOrders(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		return
+	}
+	if _, ok := accountID(w, r); !ok {
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	orders, err := a.svc.listAllOrders(r.Context(), limit)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	writeJSON(w, http.StatusOK, orders)
 }

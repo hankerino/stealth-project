@@ -111,3 +111,30 @@ func TestRateLimiter_Middleware429(t *testing.T) {
 		t.Error("expected Retry-After header on 429")
 	}
 }
+
+// auditor is read-only: it passes requireRole("auditor") (the GET /v1/admin/*
+// reads) but is refused admin writes and trading routes. admin still passes
+// auditor routes because admin is a superset.
+func TestAuditorRole_ReadOnly(t *testing.T) {
+	read := requireRole("auditor")(okHandler())
+	write := requireRole("admin")(okHandler())
+	trade := chain(okHandler(), requireVerified(), requireRole("buyer", "seller", "trader"))
+
+	if rr := doWithClaims(read, &Claims{Role: "auditor"}); rr.Code != http.StatusOK {
+		t.Errorf("auditor should read admin views, got %d", rr.Code)
+	}
+	if rr := doWithClaims(read, &Claims{Role: "admin"}); rr.Code != http.StatusOK {
+		t.Errorf("admin should still read admin views, got %d", rr.Code)
+	}
+	for _, role := range []string{"buyer", "seller", "trader", ""} {
+		if rr := doWithClaims(read, &Claims{Role: role}); rr.Code != http.StatusForbidden {
+			t.Errorf("%q must not read admin views, got %d", role, rr.Code)
+		}
+	}
+	if rr := doWithClaims(write, &Claims{Role: "auditor", AAL: "aal2"}); rr.Code != http.StatusForbidden {
+		t.Errorf("auditor must be refused admin writes even with MFA, got %d", rr.Code)
+	}
+	if rr := doWithClaims(trade, &Claims{Role: "auditor", Verified: true}); rr.Code != http.StatusForbidden {
+		t.Errorf("auditor must be refused trading routes, got %d", rr.Code)
+	}
+}

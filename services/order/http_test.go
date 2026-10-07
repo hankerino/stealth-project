@@ -82,3 +82,20 @@ func TestHandleOrders_RejectsWithoutIdentity(t *testing.T) {
 		t.Fatalf("want 401, got %d", rr.Code)
 	}
 }
+
+func TestHandleAdminOrders_RejectsWithoutIdentityAndWrites(t *testing.T) {
+	t.Setenv("GATEWAY_SHARED_SECRET", "")
+	api := &httpAPI{}
+	rr := httptest.NewRecorder()
+	api.handleAdminOrders(rr, httptest.NewRequest(http.MethodGet, "/v1/admin/orders", nil))
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("no identity: want 401, got %d", rr.Code)
+	}
+	rr = httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/admin/orders", nil)
+	req.Header.Set(headerAccountID, "auditor-1")
+	api.handleAdminOrders(rr, req)
+	if rr.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("write: want 405, got %d", rr.Code)
+	}
+}

@@ -2,7 +2,9 @@
 //
 // These middlewares run AFTER authenticator.middleware has put verified Claims
 // on the request context. They gate routes by account role and by the manual
-// KYB "verified" flag. Roles: buyer, seller, trader, admin.
+// KYB "verified" flag. Roles: buyer, seller, trader, admin, auditor.
+// auditor is read-only: it is listed only on GET /v1/admin/* routes, so every
+// write (requireRole("admin")) and trading route (buyer/seller/trader) refuses it.
 package main
 
 import "net/http"
