@@ -86,6 +86,7 @@ func main() {
 	api := &httpAPI{svc: svc}
 	mux.HandleFunc("/v1/orders", api.handleOrders)
 	mux.HandleFunc("/v1/orders/{id}", api.handleCancel)
+	mux.HandleFunc("/v1/admin/orders", api.handleAdminOrders) // admin/auditor read (gateway)
 
 	httpAddr := envOr("LISTEN_ADDR", ":8080")
 	go func() {

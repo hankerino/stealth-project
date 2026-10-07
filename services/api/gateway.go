@@ -100,7 +100,7 @@ func registerGateway(mux *http.ServeMux, audit *auditor) {
 	mux.Handle("GET /v1/positions", trading(risk))
 
 	// Surveillance alerts (compliance): admin review queue.
-	mux.Handle("GET /v1/admin/alerts", protected(compliance, requireRole("admin")))
+	mux.Handle("GET /v1/admin/alerts", protected(compliance, requireRole("auditor")))
 	mux.Handle("POST /v1/admin/alerts/{id}", protected(compliance, requireRole("admin"), mfa))
 
 	// Escrow (settlement). Card deposits go through Stripe Checkout
@@ -115,16 +115,20 @@ func registerGateway(mux *http.ServeMux, audit *auditor) {
 	// Allocations (settlement): held GPU-hours; run them or resell on the book.
 	mux.Handle("GET /v1/allocations", trading(settlement))
 	mux.Handle("POST /v1/jobs/{id}/run", trading(settlement))
-	mux.Handle("GET /v1/admin/payouts", protected(settlement, requireRole("admin")))
+	mux.Handle("GET /v1/admin/payouts", protected(settlement, requireRole("auditor")))
 	mux.Handle("POST /v1/admin/payouts/{id}", protected(settlement, requireRole("admin"), mfa))
 	// Fees (settlement): public schedule for the UI; platform revenue for admins.
 	mux.Handle("GET /v1/fees", trading(settlement))
 	// Founding-provider applications: public form on /sell (settlement rate-limits
 	// per IP); the lead list is admin-only.
 	mux.Handle("POST /v1/providers/apply", settlement)
-	mux.Handle("GET /v1/admin/providers", protected(settlement, requireRole("admin")))
-	mux.Handle("POST /v1/admin/providers/{id}", protected(settlement, requireRole("admin")))
-	mux.Handle("GET /v1/admin/revenue", protected(settlement, requireRole("admin")))
+	mux.Handle("GET /v1/admin/providers", protected(settlement, requireRole("auditor")))
+	mux.Handle("POST /v1/admin/providers/{id}", protected(settlement, requireRole("admin"), mfa))
+	mux.Handle("GET /v1/admin/revenue", protected(settlement, requireRole("auditor")))
+	// Read-only audit views (hQube OS Exchange pod). "auditor" may call GET
+	// /v1/admin/* reads only; every write and every trading route refuses it.
+	mux.Handle("GET /v1/admin/audit", protected(settlement, requireRole("auditor")))
+	mux.Handle("GET /v1/admin/orders", protected(order, requireRole("auditor")))
 	mux.Handle("POST /v1/admin/revenue/payout", protected(settlement, requireRole("admin"), mfa))
 
 	// Catalog: reference data. Reads are public (no auth); writes are admin-only.

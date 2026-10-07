@@ -398,5 +398,32 @@ func (s *orderService) listOrders(ctx context.Context, userID string) ([]Order, 
 	return out, rows.Err()
 }
 
+// listAllOrders returns the newest orders across all accounts (admin/auditor
+// read for market surveillance). limit is clamped to 1..5000.
+func (s *orderService) listAllOrders(ctx context.Context, limit int) ([]Order, error) {
+	if limit < 1 || limit > 5000 {
+		limit = 1000
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT id, user_id, symbol, gpu_type, region, side, price_cents,
+		       quantity, filled_quantity, status, time_in_force, order_kind, contract_id, created_at, updated_at
+		FROM orders ORDER BY created_at DESC LIMIT $1`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []Order{}
+	for rows.Next() {
+		var o Order
+		if err := rows.Scan(&o.ID, &o.UserID, &o.Symbol, &o.GPUType, &o.Region,
+			&o.Side, &o.PriceCents, &o.Quantity, &o.FilledQuantity, &o.Status,
+			&o.TimeInForce, &o.OrderKind, &o.ContractID, &o.CreatedAt, &o.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, o)
+	}
+	return out, rows.Err()
+}
+
 // marshalEvent is a small helper so publishers share JSON encoding.
 func marshalEvent(event any) ([]byte, error) { return json.Marshal(event) }
