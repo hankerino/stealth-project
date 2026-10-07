@@ -118,6 +118,9 @@ func main() {
 		log.Print("KAFKA_BROKERS unset; consumer + MTM scheduler off (dev mode); POST /v1/mtm/run still works")
 	}
 
+	// Expire abandoned Stripe deposits whose "expired" webhook never arrived.
+	go svc.sweepStaleDeposits(ctx)
+
 	// Shutdown handling is wired up below, once srv exists.
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)

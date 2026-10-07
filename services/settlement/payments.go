@@ -180,6 +180,44 @@ func (s *settlementService) completeCheckout(ctx context.Context, sess *checkout
 	return nil
 }
 
+// staleDepositAge is how old a PENDING Stripe deposit must be before the
+// sweep expires it. Stripe Checkout sessions live at most 24h, and Stripe
+// retries the expired webhook for up to 3 days; 4 days clears both. Expiring
+// is safe even if a payment did succeed: completeCheckout upgrades an EXPIRED
+// row to COMPLETED and credits escrow (its default branch).
+const staleDepositAge = 96 * time.Hour
+
+// expireStaleDeposits marks PENDING Stripe deposits older than age EXPIRED
+// (covers expired webhooks that never arrived). Returns how many changed.
+func (s *settlementService) expireStaleDeposits(ctx context.Context, age time.Duration) (int64, error) {
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE escrow_deposits SET status = $1
+		WHERE status = $2 AND provider = 'stripe' AND created_at < now() - make_interval(secs => $3)`,
+		depositExpired, depositPending, age.Seconds())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
+// sweepStaleDeposits runs expireStaleDeposits hourly until ctx is done.
+func (s *settlementService) sweepStaleDeposits(ctx context.Context) {
+	t := time.NewTicker(time.Hour)
+	defer t.Stop()
+	for {
+		if n, err := s.expireStaleDeposits(ctx, staleDepositAge); err != nil {
+			log.Printf("payments: stale deposit sweep: %v", err)
+		} else if n > 0 {
+			log.Printf("payments: expired %d stale pending deposit(s)", n)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+	}
+}
+
 // expireCheckout marks an abandoned session so it drops out of "pending".
 func (s *settlementService) expireCheckout(ctx context.Context, sessionID string) error {
 	_, err := s.db.ExecContext(ctx, `
@@ -309,6 +347,11 @@ func (s *settlementService) resolvePayout(ctx context.Context, adminID, payoutID
 	if p.Status != payoutRequested {
 		return nil, fmt.Errorf("payout already %s", p.Status)
 	}
+	// Four-eyes rule: nobody may mark their own payout as paid. Rejecting
+	// your own request (which refunds escrow) stays allowed.
+	if status == payoutPaid && p.UserID == adminID {
+		return nil, errPayoutSelfApproval
+	}
 	if status == payoutRejected {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO escrow_accounts (user_id, balance, updated_at)
@@ -329,6 +372,8 @@ func (s *settlementService) resolvePayout(ctx context.Context, adminID, payoutID
 }
 
 var errPayoutNotFound = errors.New("payout not found")
+
+var errPayoutSelfApproval = errors.New("four-eyes rule: a payout must be approved by someone other than its requester")
 
 func (s *settlementService) listDeposits(ctx context.Context, userID string, limit int) ([]escrowDeposit, error) {
 	rows, err := s.db.QueryContext(ctx, `
@@ -553,6 +598,10 @@ func (a *httpAPI) handleAdminPayoutResolve(w http.ResponseWriter, r *http.Reques
 	p, err := a.svc.resolvePayout(r.Context(), adminID, r.PathValue("id"), strings.ToUpper(req.Status))
 	if errors.Is(err, errPayoutNotFound) {
 		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if errors.Is(err, errPayoutSelfApproval) {
+		writeError(w, http.StatusForbidden, err.Error())
 		return
 	}
 	if err != nil {
