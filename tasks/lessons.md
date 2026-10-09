@@ -201,3 +201,14 @@
   4. Verify the CI run for the new commit (Actions tab) before telling the user
      it shipped — CI is still the only compiler available (see the Go/Rust
      lesson above).
+
+## 2026-10-09 — Sandbox egress is a domain ALLOWLIST (root cause of every "can't reach X")
+- All sandbox traffic goes through an egress proxy (localhost:3128). Blocked hosts get
+  `HTTP/1.1 403 Forbidden` + `X-Proxy-Error: blocked-by-allowlist` on CONNECT (curl shows exit 56 / HTTP 000).
+- Allowed (observed): github.com (git), index.crates.io, static.crates.io. Blocked: hqube.co,
+  exchange.hqube.co, api.hqube.co, api.github.com, crates.io API, example.com.
+- This is the same cause as the earlier api.github.com failures — not auth, not DNS.
+- Diagnose in one line: `curl -sv -o /dev/null https://HOST 2>&1 | grep -i proxy-error`.
+- Fix is outside the sandbox: add the domain in Claude settings → Capabilities (network egress
+  allowlist; org Owners control this for Team/Enterprise). Never try to tunnel around it.
+- Meanwhile, check live sites (hqube.co, exchange.hqube.co) via the Chrome browser tools.
