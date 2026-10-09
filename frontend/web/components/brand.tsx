@@ -35,10 +35,9 @@ export function Footer() {
         </div>
         <nav className="flex flex-wrap gap-4">
           <a href="https://hqube.co" className="hover:text-zinc-300">hqube.co</a>
-          <a href="https://hqube.co/contact-us" className="hover:text-zinc-300">Contact</a>
+          <a href="https://share.hsforms.com/11LYvC1dEQRS4cmGHZS5vJA3h8eq" className="hover:text-zinc-300">Contact</a>
           <a href="/sell" className="hover:text-zinc-300">Sell capacity</a>
           <a href="https://hqube.co/privacy-policy" className="hover:text-zinc-300">Privacy</a>
-          <a href="https://hqube.co/terms" className="hover:text-zinc-300">Terms</a>
         </nav>
       </div>
     </footer>

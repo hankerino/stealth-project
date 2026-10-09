@@ -68,7 +68,7 @@ export function Landing() {
             ))}
           </div>
           <p className="mt-10 text-sm text-zinc-500">
-            Accounts are verified (KYB) before trading is enabled. hQube Exchange is operated by hQube Automation LLC and is in closed beta; contact us at <a href="https://hqube.co/contact-us" className="text-brand hover:underline">hqube.co</a> for access.
+            Accounts are verified (KYB) before trading is enabled. hQube Exchange is operated by hQube Automation LLC and is in closed beta; <a href="https://share.hsforms.com/11LYvC1dEQRS4cmGHZS5vJA3h8eq" className="text-brand hover:underline">contact us</a> for access.
           </p>
         </section>
       </main>

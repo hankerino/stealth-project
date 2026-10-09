@@ -21,7 +21,7 @@ export function VerifyBanner() {
   return (
     <div className="rounded border border-amber-900 bg-amber-950/40 px-4 py-3 text-sm text-amber-200">
       <strong>Account pending verification.</strong> You can browse markets; trading and deposits unlock once the
-      hQube team completes your KYB review. Questions: <a href="https://hqube.co/contact-us" className="underline">hqube.co/contact-us</a>.
+      hQube team completes your KYB review. Questions: <a href="https://share.hsforms.com/11LYvC1dEQRS4cmGHZS5vJA3h8eq" className="underline">contact us</a>.
     </div>
   );
 }
