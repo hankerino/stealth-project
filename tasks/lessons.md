@@ -209,6 +209,9 @@
   exchange.hqube.co, api.hqube.co, api.github.com, crates.io API, example.com.
 - This is the same cause as the earlier api.github.com failures — not auth, not DNS.
 - Diagnose in one line: `curl -sv -o /dev/null https://HOST 2>&1 | grep -i proxy-error`.
-- Fix is outside the sandbox: add the domain in Claude settings → Capabilities (network egress
-  allowlist; org Owners control this for Team/Enterprise). Never try to tunnel around it.
+- Allowed set = Anthropic's fixed "approved domains" list (github.com, npm, PyPI, crates, Ubuntu, Yarn).
+- Henk is on a personal MAX plan: Settings → Capabilities has only an "Allow network egress" toggle;
+  custom domains are a Team/Enterprise Owner feature (Organization settings → Capabilities). So
+  hqube.co / api.github.com stay blocked in the sandbox — don't send him to "Organization settings".
+  Never try to tunnel around it.
 - Meanwhile, check live sites (hqube.co, exchange.hqube.co) via the Chrome browser tools.
