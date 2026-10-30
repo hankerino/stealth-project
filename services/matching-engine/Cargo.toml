@@ -9,7 +9,7 @@ tokio = { version = "1", features = ["full"] }
 # default-features = false keeps out sasl/gssapi/zstd/curl extras; cmake-build
 # builds the bundled librdkafka statically (no system librdkafka needed), ssl
 # keeps KAFKA_TLS_ENABLED support.
-rdkafka = { version = "0.36", default-features = false, features = ["cmake-build", "ssl", "tokio"] }
+rdkafka = { version = "0.39", default-features = false, features = ["cmake-build", "ssl", "tokio"] }
 # Pin rdkafka-sys: >=4.8 bundles librdkafka >=2.5 whose cmake build writes
 # `#define WITH_* 0` into the generated config.h while sources test `#ifdef`
 # — so the build then wrongly pulls in <curl/curl.h> and fails without system
